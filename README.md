@@ -63,8 +63,6 @@ File Shifter kann vollständig über Kommandozeilen-Parameter konfiguriert werde
 # Hilfe anzeigen
 ./file-shifter --help
 ./file-shifter -h
-./file-shifter ?
-./file-shifter -?
 
 # Log-Level setzen
 ./file-shifter --log-level DEBUG
