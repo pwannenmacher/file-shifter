@@ -24,7 +24,7 @@ func (c *EnvConfig) LoadFromEnvironment() error {
 	// Input Directory - neue und alte Struktur unterstützen
 	if inputDir := os.Getenv("INPUT"); inputDir != "" {
 		c.Input = inputDir
-	} else if inputDir := os.Getenv("INPUT_DIRECTORY"); inputDir != "" {
+	} else if inputDir := os.Getenv("INPUT"); inputDir != "" {
 		c.Input = inputDir // Fallback für alte Struktur
 	}
 
@@ -33,7 +33,7 @@ func (c *EnvConfig) LoadFromEnvironment() error {
 
 	// Output Targets - alte JSON-Struktur als Fallback
 	if len(c.Output) == 0 {
-		if outputTargetsJSON := os.Getenv("OUTPUT_TARGETS"); outputTargetsJSON != "" {
+		if outputTargetsJSON := os.Getenv("OUTPUTS"); outputTargetsJSON != "" {
 			var targets []OutputTarget
 			if err := json.Unmarshal([]byte(outputTargetsJSON), &targets); err == nil {
 				c.Output = targets

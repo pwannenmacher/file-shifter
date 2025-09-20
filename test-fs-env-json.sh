@@ -10,8 +10,8 @@ rm -rf input output1 output2 .env env.yaml 2>/dev/null
 # Erstelle alte ENV-Struktur
 cat > .env << 'EOL'
 LOG_LEVEL=INFO
-INPUT_DIRECTORY=./input
-OUTPUT_TARGETS=[{"path":"./output1","type":"filesystem"},{"path":"./output2","type":"filesystem"}]
+INPUT=./input
+OUTPUTS=[{"path":"./output1","type":"filesystem"},{"path":"./output2","type":"filesystem"}]
 EOL
 
 echo "Teste alte ENV-Struktur:"

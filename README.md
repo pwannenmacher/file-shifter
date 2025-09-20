@@ -49,145 +49,225 @@ go build -o file-shifter .
 File Shifter unterstützt mehrere Konfigurationsmethoden mit folgender Priorität:
 
 1. **Environment-Variablen** (höchste Priorität)
-2. **env.yaml** (mittlere Priorität)
+2. **env.yaml** (mittlere Priorität)  
 3. **Standard-Defaults** (niedrigste Priorität)
 
 ### 🔧 Environment-Variablen (.env)
 
-#### Basis-Konfiguration
+File Shifter unterstützt zwei ENV-Variable-Strukturen:
+
+#### 🆕 Neue flache Struktur (empfohlen)
+
+Die neue Struktur ist konsistent mit der YAML-Konfiguration und ermöglicht unterschiedliche S3-Konfigurationen pro Output-Ziel:
 
 ```bash
 # Logging
 LOG_LEVEL=INFO
 
 # Input-Verzeichnis
-INPUT_DIRECTORY=./input
+INPUT=./input
 
-# Output-Targets
-OUTPUT_TARGETS_1_PATH=./output1
-OUTPUT_TARGETS_1_TYPE=filesystem
+# Output-Ziel 1: Filesystem
+OUTPUT_1_PATH=./output1
+OUTPUT_1_TYPE=filesystem
 
-OUTPUT_TARGETS_2_PATH=./output2
-OUTPUT_TARGETS_2_TYPE=filesystem
+# Output-Ziel 2: Filesystem  
+OUTPUT_2_PATH=./output2
+OUTPUT_2_TYPE=filesystem
+
+# Output-Ziel 3: S3/MinIO
+OUTPUT_3_PATH=s3://my-bucket/uploads
+OUTPUT_3_TYPE=s3
+OUTPUT_3_ENDPOINT=localhost:9000
+OUTPUT_3_ACCESS_KEY=minioadmin
+OUTPUT_3_SECRET_KEY=minioadmin
+OUTPUT_3_SSL=false
+OUTPUT_3_REGION=eu-central-1
+
+# Output-Ziel 4: SFTP
+OUTPUT_4_PATH=sftp://server.example.com/uploads
+OUTPUT_4_TYPE=sftp
+OUTPUT_4_HOST=server.example.com
+OUTPUT_4_USERNAME=ftpuser
+OUTPUT_4_PASSWORD=secret123
+
+# Output-Ziel 5: FTP
+OUTPUT_5_PATH=ftp://ftp.example.com/files
+OUTPUT_5_TYPE=ftp
+OUTPUT_5_HOST=ftp.example.com
+OUTPUT_5_USERNAME=ftpuser
+OUTPUT_5_PASSWORD=secret123
 ```
 
-#### S3-Targets
+#### 🔄 Legacy JSON-Struktur (Rückwärtskompatibilität)
+
+Die alte Struktur wird weiterhin unterstützt:
 
 ```bash
-# S3-Ziel konfigurieren
-OUTPUT_TARGETS_1_PATH=s3://my-bucket/uploads
-OUTPUT_TARGETS_1_TYPE=s3
+# Logging
+LOG_LEVEL=INFO
 
-# S3-Verbindungsparameter
-OUTPUT_CONFIG_S3_ENDPOINT=s3.amazonaws.com
-OUTPUT_CONFIG_S3_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE
-OUTPUT_CONFIG_S3_SECRET_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-OUTPUT_CONFIG_S3_REGION=eu-central-1
-OUTPUT_CONFIG_S3_SSL=true
-```
+# Input-Verzeichnis (alte Bezeichnung)
+INPUT=./input
 
-#### MinIO-Setup (S3-kompatibel)
+# Output-Targets als JSON-Array
+OUTPUTS=[{"path":"./output1","type":"filesystem"},{"path":"./output2","type":"filesystem"},{"path":"s3://my-bucket/uploads","type":"s3"}]
 
-```bash
-# MinIO-Ziel (lokale S3-Alternative)
-OUTPUT_TARGETS_1_PATH=s3://test-bucket/files
-OUTPUT_TARGETS_1_TYPE=s3
+# Globale S3-Konfiguration (für alle S3-Targets)
+S3_ENDPOINT=localhost:9000
+S3_ACCESS_KEY=minioadmin
+S3_SECRET_KEY=minioadmin
+S3_USE_SSL=false
+S3_REGION=eu-central-1
 
-# MinIO-Verbindungsparameter
-OUTPUT_CONFIG_S3_ENDPOINT=localhost:9000
-OUTPUT_CONFIG_S3_ACCESS_KEY=minioadmin
-OUTPUT_CONFIG_S3_SECRET_KEY=minioadmin
-OUTPUT_CONFIG_S3_REGION=us-east-1
-OUTPUT_CONFIG_S3_SSL=false
-```
-
-#### FTP/SFTP-Targets
-
-```bash
-# SFTP-Ziel
-OUTPUT_TARGETS_1_PATH=sftp://server.example.com/uploads
-OUTPUT_TARGETS_1_TYPE=ftp
-
-# FTP-Ziel
-OUTPUT_TARGETS_2_PATH=ftp://ftp.example.com/files
-OUTPUT_TARGETS_2_TYPE=ftp
-
-# FTP-Verbindungsparameter
-OUTPUT_CONFIG_FTP_HOST=server.example.com
-OUTPUT_CONFIG_FTP_USERNAME=ftpuser
-OUTPUT_CONFIG_FTP_PASSWORD=secret123
+# Globale FTP-Konfiguration (für alle FTP/SFTP-Targets)
+FTP_HOST=server.example.com
+FTP_USERNAME=ftpuser
+FTP_PASSWORD=secret123
 ```
 
 ### 📄 YAML-Konfiguration (env.yaml)
 
-#### Basis-Setup
+Die YAML-Konfiguration verwendet jetzt eine flache, einfache Struktur:
+
+#### 🆕 Neue flache YAML-Struktur
 
 ```yaml
 log:
   level: INFO
 
-input:
-  directory: ./input
+# Input als direkter String
+input: ./input
 
+# Output als direktes Array (ohne 'targets'-Wrapper)
 output:
-  targets:
-    - path: ./output1
-      type: filesystem
-    - path: ./output2
-      type: filesystem
+  - path: ./output1
+    type: filesystem
+  - path: ./output2
+    type: filesystem
+  - path: s3://my-bucket/output3
+    type: s3
+    endpoint: minio1:9000
+    access-key: minioadmin
+    secret-key: minioadmin
+    ssl: false
+    region: eu-central-1
+  - path: s3://my-bucket/output4
+    type: s3
+    endpoint: minio2:9000
+    access-key: minioadmin
+    secret-key: minioadmin
+    ssl: false
+    region: eu-central-1
+  - path: sftp://my-server1/output5
+    type: sftp
+    host: your-ftp-host
+    username: your-username
+    password: your-password
+  - path: ftp://my-server2/output6
+    type: ftp
+    host: your-ftp-host
+    username: your-username
+    password: your-password
 ```
 
-#### Multi-Target-Setup mit S3
+#### 💡 Vorteile der neuen Struktur
+
+- **Einfacher**: Weniger Verschachtelung, direktere Konfiguration
+- **Konsistent**: ENV- und YAML-Struktur sind analog aufgebaut
+- **Flexibel**: Unterschiedliche S3-Endpoints pro Output möglich
+- **Skalierbar**: Beliebig viele Output-Ziele einfach hinzufügbar
+
+### 🔄 Konfigurationspriorität und Kompatibilität
+
+#### Prioritäts-System
+
+File Shifter lädt Konfigurationen in folgender Reihenfolge:
+
+1. **YAML-Datei laden** (`env.yaml` oder `env.yml`)
+2. **Standard-Werte setzen** (falls Werte fehlen)
+3. **ENV-Variablen laden** (überschreibt YAML-Werte)
+
+#### ENV-Variable Priorität
+
+Bei ENV-Variablen gilt folgende Priorität:
+
+1. **Neue flache Struktur** (`OUTPUT_X_*`) - wird zuerst versucht
+2. **Legacy JSON-Struktur** (`OUTPUTS`) - als Fallback verwendet
+3. **Input-Variablen**: `INPUT` hat Priorität vor `INPUT`
+
+#### Beispiel: Kombinierte Konfiguration
+
+**env.yaml (Basis-Konfiguration):**
 
 ```yaml
 log:
-  level: INFO
-
-input:
-  directory: ./watch-folder
-
+  level: DEBUG
+input: ./yaml-input
 output:
-  targets:
-    # Lokale Backups
-    - path: ./backup/local
-      type: filesystem
-    - path: /mnt/network-drive/backup
-      type: filesystem
-    
-    # Cloud Storage
-    - path: s3://production-bucket/files
-      type: s3
-
-  config:
-    s3:
-      endpoint: s3.amazonaws.com
-      access-key: AKIAIOSFODNN7EXAMPLE
-      secret-key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-      ssl: true
-      region: eu-central-1
+  - path: ./yaml-output
+    type: filesystem
 ```
 
-#### FTP/SFTP-Setup
+**.env (Überschreibt YAML):**
+
+```bash
+LOG_LEVEL=INFO
+INPUT=./env-input
+OUTPUT_1_PATH=./env-output1
+OUTPUT_1_TYPE=filesystem
+OUTPUT_2_PATH=./env-output2
+OUTPUT_2_TYPE=filesystem
+```
+
+**Resultierende Konfiguration:**
+
+- Log-Level: `INFO` (ENV überschreibt YAML)
+- Input: `./env-input` (ENV überschreibt YAML)
+- Outputs: `./env-output1` und `./env-output2` (ENV überschreibt YAML komplett)
+
+
+#### 🔧 Praktische Beispiele
+
+**Einfaches Backup-Setup:**
 
 ```yaml
 log:
   level: INFO
-
-input:
-  directory: ./uploads
-
+input: ./incoming
 output:
-  targets:
-    - path: sftp://secure-server.com/incoming
-      type: ftp
-    - path: ftp://backup-server.com/files
-      type: ftp
+  - path: ./backup/local
+    type: filesystem
+  - path: s3://backup-bucket/files
+    type: s3
+    endpoint: s3.amazonaws.com
+    access-key: YOUR_ACCESS_KEY
+    secret-key: YOUR_SECRET_KEY
+    ssl: true
+    region: eu-central-1
+```
 
-  config:
-    ftp:
-      host: secure-server.com
-      username: transfer-user
-      password: secure-password
+**Multi-Cloud-Setup:**
+
+```yaml
+log:
+  level: INFO
+input: ./data
+output:
+  - path: s3://aws-bucket/data
+    type: s3
+    endpoint: s3.amazonaws.com
+    access-key: AWS_ACCESS_KEY
+    secret-key: AWS_SECRET_KEY
+    ssl: true
+    region: eu-central-1
+  - path: s3://minio-bucket/data
+    type: s3
+    endpoint: minio.company.com:9000
+    access-key: MINIO_ACCESS_KEY
+    secret-key: MINIO_SECRET_KEY
+    ssl: false
+    region: us-east-1
 ```
 
 ## 🐳 Docker Setup
@@ -230,6 +310,29 @@ volumes:
   minio-data:
 ```
 
+#### Beispiel env.yaml für Docker
+
+```yaml
+log:
+  level: INFO
+
+input: ./input
+
+output:
+  # Lokales Backup
+  - path: ./output
+    type: filesystem
+  
+  # MinIO S3-kompatibles Storage
+  - path: s3://docker-bucket/files
+    type: s3
+    endpoint: minio:9000
+    access-key: minioadmin
+    secret-key: minioadmin
+    ssl: false
+    region: us-east-1
+```
+
 #### Entwicklung starten
 
 ```bash
@@ -245,6 +348,40 @@ docker-compose logs -f file-shifter
 ```
 
 ### Produktions-Setup
+
+#### Mit ENV-Variablen
+
+```yaml
+version: '3.8'
+
+services:
+  file-shifter:
+    image: file-shifter:latest
+    container_name: file-shifter-prod
+    volumes:
+      - /data/input:/app/input
+      - /data/backup:/app/backup
+    environment:
+      - LOG_LEVEL=INFO
+      - INPUT=/app/input
+      - OUTPUT_1_PATH=/app/backup
+      - OUTPUT_1_TYPE=filesystem
+      - OUTPUT_2_PATH=s3://prod-bucket/files
+      - OUTPUT_2_TYPE=s3
+      - OUTPUT_2_ENDPOINT=s3.amazonaws.com
+      - OUTPUT_2_ACCESS_KEY=${AWS_ACCESS_KEY}
+      - OUTPUT_2_SECRET_KEY=${AWS_SECRET_KEY}
+      - OUTPUT_2_SSL=true
+      - OUTPUT_2_REGION=eu-central-1
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+```
+
+#### Mit YAML-Konfiguration
 
 ```yaml
 version: '3.8'
@@ -350,34 +487,91 @@ Für umfassende Tests und Beispiele siehe **[SCRIPTS.md](SCRIPTS.md)**
 
 ```yaml
 # Automatisches Backup zu mehreren Zielen
-input:
-  directory: /data/incoming
+log:
+  level: INFO
+
+input: /data/incoming
 
 output:
-  targets:
-    - path: /backup/local/daily
-      type: filesystem
-    - path: s3://backup-bucket/daily
-      type: s3
-    - path: sftp://offsite-server.com/backup
-      type: ftp
+  - path: /backup/local/daily
+    type: filesystem
+  - path: s3://backup-bucket/daily
+    type: s3
+    endpoint: s3.amazonaws.com
+    access-key: YOUR_ACCESS_KEY
+    secret-key: YOUR_SECRET_KEY
+    ssl: true
+    region: eu-central-1
+  - path: sftp://offsite-server.com/backup
+    type: sftp
+    host: offsite-server.com
+    username: backup-user
+    password: secure-password
 ```
 
 ### Development-Workflow
 
+#### Mit neuer ENV-Struktur
+
 ```bash
-# 1. Entwicklungsumgebung starten
+# 1. .env-Datei erstellen
+cat > .env << 'EOF'
+LOG_LEVEL=DEBUG
+INPUT=./input
+OUTPUT_1_PATH=./output
+OUTPUT_1_TYPE=filesystem
+OUTPUT_2_PATH=s3://dev-bucket/test
+OUTPUT_2_TYPE=s3
+OUTPUT_2_ENDPOINT=localhost:9000
+OUTPUT_2_ACCESS_KEY=minioadmin
+OUTPUT_2_SECRET_KEY=minioadmin
+OUTPUT_2_SSL=false
+OUTPUT_2_REGION=us-east-1
+EOF
+
+# 2. Entwicklungsumgebung starten
 docker-compose up -d
 
-# 2. Test-Dateien erstellen
+# 3. Test-Dateien erstellen
 mkdir -p input
 echo "Test content" > input/test.txt
 
-# 3. Verarbeitung überwachen
+# 4. Verarbeitung überwachen
 docker-compose logs -f file-shifter
 
-# 4. Ergebnis prüfen
+# 5. Ergebnis prüfen
 ls -la output/
+```
+
+### Produktions-Workflows
+
+#### Legacy-Migration
+
+Falls Sie eine bestehende Konfiguration migrieren möchten:
+
+**Alte Struktur:**
+
+```bash
+INPUT=./input
+OUTPUTS=[{"path":"./output","type":"filesystem"},{"path":"s3://bucket/files","type":"s3"}]
+S3_ENDPOINT=s3.amazonaws.com
+S3_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE
+S3_SECRET_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+```
+
+**Neue Struktur:**
+
+```bash
+INPUT=./input
+OUTPUT_1_PATH=./output
+OUTPUT_1_TYPE=filesystem
+OUTPUT_2_PATH=s3://bucket/files
+OUTPUT_2_TYPE=s3
+OUTPUT_2_ENDPOINT=s3.amazonaws.com
+OUTPUT_2_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE
+OUTPUT_2_SECRET_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+OUTPUT_2_SSL=true
+OUTPUT_2_REGION=eu-central-1
 ```
 
 ## 🤝 Contributing
