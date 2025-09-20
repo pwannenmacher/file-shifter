@@ -73,10 +73,20 @@ func setupLogger(cfg *config.EnvConfig) {
 }
 
 func main() {
-	// Reihenfolge der Konfiguration:
-	// 1. env.yaml oder env.yml laden (falls vorhanden)
-	// 2. .env laden (falls vorhanden)
-	// 3. Umgebungsvariablen laden (überschreibt alles andere)
+	// 1. Command Line Arguments parsen
+	cliCfg := config.ParseCLI()
+
+	// Validiere CLI-Konfiguration
+	if err := cliCfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "Fehler in Kommandozeilen-Argumenten: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 2. Reihenfolge der Konfiguration:
+	// - env.yaml oder env.yml laden (falls vorhanden)
+	// - .env laden (falls vorhanden)
+	// - Umgebungsvariablen laden
+	// - CLI-Parameter anwenden (überschreibt alles andere)
 
 	cfg, err := loadEnvYaml()
 	if err != nil {
@@ -94,6 +104,13 @@ func main() {
 	err = cfg.LoadFromEnvironment()
 	if err != nil {
 		fmt.Println("Fehler beim Laden der Umgebungsvariablen:", err)
+	}
+
+	// CLI-Parameter anwenden (höchste Priorität)
+	err = cliCfg.ApplyToCfg(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Fehler beim Anwenden der CLI-Parameter: %v\n", err)
+		os.Exit(1)
 	}
 
 	// Logger-Konfiguration

@@ -48,9 +48,126 @@ go build -o file-shifter .
 
 File Shifter unterstützt mehrere Konfigurationsmethoden mit folgender Priorität:
 
-1. **Environment-Variablen** (höchste Priorität)
-2. **env.yaml** (mittlere Priorität)  
-3. **Standard-Defaults** (niedrigste Priorität)
+1. **Kommandozeilen-Parameter** (höchste Priorität)
+2. **Environment-Variablen** (hohe Priorität)
+3. **env.yaml** (mittlere Priorität)  
+4. **Standard-Defaults** (niedrigste Priorität)
+
+### 🖥️ Kommandozeilen-Parameter
+
+File Shifter kann vollständig über Kommandozeilen-Parameter konfiguriert werden:
+
+#### Grundlegende Parameter
+
+```bash
+# Hilfe anzeigen
+./file-shifter --help
+./file-shifter -h
+./file-shifter ?
+./file-shifter -?
+
+# Log-Level setzen
+./file-shifter --log-level DEBUG
+
+# Input-Verzeichnis setzen
+./file-shifter --input ./my-input
+
+# Output-Targets als JSON definieren
+./file-shifter --outputs '[{"path":"./backup","type":"filesystem"}]'
+```
+
+#### Vollständige Beispiele
+
+**Einfaches Filesystem-Backup:**
+
+```bash
+./file-shifter \
+  --input ./data \
+  --outputs '[{"path":"./backup","type":"filesystem"}]'
+```
+
+**Multi-Target mit S3 und Filesystem:**
+
+```bash
+./file-shifter \
+  --log-level INFO \
+  --input ./uploads \
+  --outputs '[
+    {"path":"./local-backup","type":"filesystem"},
+    {"path":"s3://my-bucket/files","type":"s3",
+     "endpoint":"localhost:9000","access-key":"minioadmin",
+     "secret-key":"minioadmin","ssl":false,"region":"us-east-1"}
+  ]'
+```
+
+**Debug-Modus mit SFTP:**
+
+```bash
+./file-shifter \
+  --log-level DEBUG \
+  --input ./data \
+  --outputs '[
+    {"path":"sftp://server.com/backup","type":"sftp",
+     "host":"server.com","username":"user","password":"pass"}
+  ]'
+```
+
+#### Parameter-Referenz
+
+| Parameter | Beschreibung | Format | Beispiel |
+|-----------|--------------|--------|----------|
+| `--log-level` | Log-Level festlegen | `DEBUG\|INFO\|WARN\|ERROR` | `--log-level INFO` |
+| `--input` | Input-Verzeichnis | Pfad-String | `--input ./data` |
+| `--outputs` | Output-Targets | JSON-Array | `--outputs '[{"path":"./out","type":"filesystem"}]'` |
+| `--help`, `-h` | Hilfe anzeigen | - | `--help` |
+
+#### JSON-Format für --outputs
+
+Das `--outputs` Parameter erwartet ein JSON-Array mit Output-Target-Objekten:
+
+**Filesystem:**
+
+```json
+[{"path":"./backup","type":"filesystem"}]
+```
+
+**S3/MinIO:**
+
+```json
+[{
+  "path":"s3://bucket/prefix",
+  "type":"s3",
+  "endpoint":"s3.amazonaws.com",
+  "access-key":"ACCESS_KEY",
+  "secret-key":"SECRET_KEY",
+  "ssl":true,
+  "region":"eu-central-1"
+}]
+```
+
+**SFTP:**
+
+```json
+[{
+  "path":"sftp://server/path",
+  "type":"sftp",
+  "host":"server.com",
+  "username":"user",
+  "password":"password"
+}]
+```
+
+**FTP:**
+
+```json
+[{
+  "path":"ftp://server/path",
+  "type":"ftp",
+  "host":"ftp.server.com",
+  "username":"user",
+  "password":"password"
+}]
+```
 
 ### 🔧 Environment-Variablen (.env)
 
