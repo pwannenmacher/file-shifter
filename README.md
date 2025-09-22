@@ -1,5 +1,7 @@
 # File Shifter
 
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=pwannenmacher_file-shifter&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=pwannenmacher_file-shifter) [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=pwannenmacher_file-shifter&metric=coverage)](https://sonarcloud.io/summary/new_code?id=pwannenmacher_file-shifter) [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=pwannenmacher_file-shifter&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=pwannenmacher_file-shifter) [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=pwannenmacher_file-shifter&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=pwannenmacher_file-shifter)
+
 Ein robuster File-Transfer-Service, der Dateien aus einem Input-Directory
 automatisch zu mehreren Zielen kopiert und dabei die ursprüngliche
 Dateistruktur erhält.
