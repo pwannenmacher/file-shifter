@@ -19,6 +19,11 @@ const (
 	testValidPath2    = "/test/path2"
 	testValidFilePath = "/valid/path"
 
+	// Validation test constants
+	testSomeInput   = "/some/input"
+	testSomeOutput  = "/some/output"
+	testCustomInput = "/custom/input"
+
 	testMinioEndpoint = "minio.example.com"
 	testFTPHost       = "ftp.example.com"
 	testS3Endpoint    = "s3.amazonaws.com"
@@ -51,13 +56,13 @@ func TestEnvConfig_SetDefaults(t *testing.T) {
 				Log: struct {
 					Level string `yaml:"level"`
 				}{Level: "DEBUG"},
-				Input: "/custom/input",
+				Input: testCustomInput,
 			},
 			expected: EnvConfig{
 				Log: struct {
 					Level string `yaml:"level"`
 				}{Level: "DEBUG"},
-				Input: "/custom/input",
+				Input: testCustomInput,
 			},
 		},
 	}
@@ -115,8 +120,8 @@ func TestEnvConfig_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: EnvConfig{
-				Input:  "/some/input",
-				Output: []OutputTarget{{Path: "/some/output", Type: "file"}},
+				Input:  testSomeInput,
+				Output: []OutputTarget{{Path: testSomeOutput, Type: "file"}},
 			},
 			wantError: false,
 		},
@@ -124,14 +129,14 @@ func TestEnvConfig_Validate(t *testing.T) {
 			name: "empty input",
 			config: EnvConfig{
 				Input:  "",
-				Output: []OutputTarget{{Path: "/some/output", Type: "file"}},
+				Output: []OutputTarget{{Path: testSomeOutput, Type: "file"}},
 			},
 			wantError: true,
 		},
 		{
 			name: "no output targets",
 			config: EnvConfig{
-				Input:  "/some/input",
+				Input:  testSomeInput,
 				Output: []OutputTarget{},
 			},
 			wantError: true,
@@ -139,7 +144,7 @@ func TestEnvConfig_Validate(t *testing.T) {
 		{
 			name: "nil output",
 			config: EnvConfig{
-				Input:  "/some/input",
+				Input:  testSomeInput,
 				Output: nil,
 			},
 			wantError: true,
