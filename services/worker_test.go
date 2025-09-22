@@ -7,35 +7,50 @@ import (
 	"testing"
 )
 
-func TestNewWorker_ValidInput(t *testing.T) {
-	// Test-Setup: Temporäres Verzeichnis erstellen
-	tempDir, err := os.MkdirTemp("", "worker_test_*")
+// Helper functions to reduce code duplication
+
+// setupTempDir creates a temporary directory for testing and returns cleanup function
+func setupTempDir(t *testing.T, prefix string) (string, func()) {
+	tempDir, err := os.MkdirTemp("", prefix)
 	if err != nil {
 		t.Fatalf("Fehler beim Erstellen des temporären Verzeichnisses: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	cleanup := func() { os.RemoveAll(tempDir) }
+	return tempDir, cleanup
+}
 
-	// Valid targets definieren
-	targets := []config.OutputTarget{
-		{Type: "filesystem", Path: "/tmp/output"},
+// createFilesystemTargets creates standard filesystem targets for testing
+func createFilesystemTargets(paths ...string) []config.OutputTarget {
+	if len(paths) == 0 {
+		paths = []string{"/tmp/output"}
 	}
 
-	// NewWorker aufrufen
-	worker := NewWorker(tempDir, targets)
+	targets := make([]config.OutputTarget, len(paths))
+	for i, path := range paths {
+		targets[i] = config.OutputTarget{Type: "filesystem", Path: path}
+	}
+	return targets
+}
 
-	// Assertions
+// assertWorkerBasics performs standard assertions on worker components
+func assertWorkerBasics(t *testing.T, worker *Worker, expectedInputDir string, expectedTargetCount int) {
 	if worker == nil {
 		t.Fatal("Worker sollte nicht nil sein")
 	}
 
-	if worker.InputDir != tempDir {
-		t.Errorf("InputDir stimmt nicht überein. Erwartet: %s, Bekommen: %s", tempDir, worker.InputDir)
+	if worker.InputDir != expectedInputDir {
+		t.Errorf("InputDir stimmt nicht überein. Erwartet: %s, Bekommen: %s", expectedInputDir, worker.InputDir)
 	}
 
-	if len(worker.OutputTargets) != 1 {
-		t.Errorf("Anzahl der OutputTargets stimmt nicht überein. Erwartet: 1, Bekommen: %d", len(worker.OutputTargets))
+	if len(worker.OutputTargets) != expectedTargetCount {
+		t.Errorf("Anzahl der OutputTargets stimmt nicht überein. Erwartet: %d, Bekommen: %d", expectedTargetCount, len(worker.OutputTargets))
 	}
 
+	assertWorkerComponents(t, worker)
+}
+
+// assertWorkerComponents checks that all worker components are properly initialized
+func assertWorkerComponents(t *testing.T, worker *Worker) {
 	if worker.S3ClientManager == nil {
 		t.Error("S3ClientManager sollte nicht nil sein")
 	}
@@ -53,133 +68,13 @@ func TestNewWorker_ValidInput(t *testing.T) {
 	}
 }
 
-func TestNewWorker_NonExistentInputDir(t *testing.T) {
-	// Test-Setup: Nicht existierendes Verzeichnis
-	nonExistentDir := filepath.Join(os.TempDir(), "non_existent_worker_test")
-
-	// Sicherstellen, dass das Verzeichnis nicht existiert
-	os.RemoveAll(nonExistentDir)
-	defer os.RemoveAll(nonExistentDir)
-
-	targets := []config.OutputTarget{
-		{Type: "filesystem", Path: "/tmp/output"},
+// assertTargets verifies that targets match expected values
+func assertTargets(t *testing.T, actualTargets []config.OutputTarget, expectedPaths []string) {
+	if len(actualTargets) != len(expectedPaths) {
+		t.Fatalf("Erwartete %d Targets, bekommen: %d", len(expectedPaths), len(actualTargets))
 	}
 
-	// NewWorker aufrufen - sollte das Verzeichnis erstellen
-	worker := NewWorker(nonExistentDir, targets)
-
-	// Assertions
-	if worker == nil {
-		t.Fatal("Worker sollte nicht nil sein")
-	}
-
-	// Prüfen, dass das Verzeichnis erstellt wurde
-	if _, err := os.Stat(nonExistentDir); os.IsNotExist(err) {
-		t.Error("Input-Verzeichnis sollte erstellt worden sein")
-	}
-
-	if worker.InputDir != nonExistentDir {
-		t.Errorf("InputDir stimmt nicht überein. Erwartet: %s, Bekommen: %s", nonExistentDir, worker.InputDir)
-	}
-}
-
-func TestNewWorker_EmptyTargets(t *testing.T) {
-	// Test-Setup: Temporäres Verzeichnis erstellen
-	tempDir, err := os.MkdirTemp("", "worker_test_empty_*")
-	if err != nil {
-		t.Fatalf("Fehler beim Erstellen des temporären Verzeichnisses: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Leere targets
-	var targets []config.OutputTarget
-
-	// NewWorker aufrufen
-	worker := NewWorker(tempDir, targets)
-
-	// Assertions
-	if worker == nil {
-		t.Fatal("Worker sollte nicht nil sein")
-	}
-
-	if len(worker.OutputTargets) != 0 {
-		t.Errorf("Anzahl der OutputTargets sollte 0 sein. Bekommen: %d", len(worker.OutputTargets))
-	}
-
-	// Andere Komponenten sollten trotzdem initialisiert sein
-	if worker.S3ClientManager == nil {
-		t.Error("S3ClientManager sollte nicht nil sein")
-	}
-
-	if worker.FileHandler == nil {
-		t.Error("FileHandler sollte nicht nil sein")
-	}
-}
-
-func TestNewWorker_FilesystemTarget(t *testing.T) {
-	// Test-Setup: Temporäres Verzeichnis erstellen
-	tempDir, err := os.MkdirTemp("", "worker_test_fs_*")
-	if err != nil {
-		t.Fatalf("Fehler beim Erstellen des temporären Verzeichnisses: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Filesystem target
-	targets := []config.OutputTarget{
-		{Type: "filesystem", Path: "/tmp/test-output"},
-	}
-
-	// NewWorker aufrufen
-	worker := NewWorker(tempDir, targets)
-
-	// Assertions
-	if worker == nil {
-		t.Fatal("Worker sollte nicht nil sein")
-	}
-
-	if len(worker.OutputTargets) != 1 {
-		t.Fatalf("Erwartete 1 OutputTarget, bekommen: %d", len(worker.OutputTargets))
-	}
-
-	target := worker.OutputTargets[0]
-	if target.Type != "filesystem" {
-		t.Errorf("Target.Type stimmt nicht überein. Erwartet: filesystem, Bekommen: %s", target.Type)
-	}
-
-	if target.Path != "/tmp/test-output" {
-		t.Errorf("Target.Path stimmt nicht überein. Erwartet: /tmp/test-output, Bekommen: %s", target.Path)
-	}
-}
-
-func TestNewWorker_MultipleTargets(t *testing.T) {
-	// Test-Setup: Temporäres Verzeichnis erstellen
-	tempDir, err := os.MkdirTemp("", "worker_test_multi_*")
-	if err != nil {
-		t.Fatalf("Fehler beim Erstellen des temporären Verzeichnisses: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Mehrere targets
-	targets := []config.OutputTarget{
-		{Type: "filesystem", Path: "/tmp/output1"},
-		{Type: "filesystem", Path: "/tmp/output2"},
-	}
-
-	// NewWorker aufrufen
-	worker := NewWorker(tempDir, targets)
-
-	// Assertions
-	if worker == nil {
-		t.Fatal("Worker sollte nicht nil sein")
-	}
-
-	if len(worker.OutputTargets) != 2 {
-		t.Errorf("Anzahl der OutputTargets stimmt nicht überein. Erwartet: 2, Bekommen: %d", len(worker.OutputTargets))
-	}
-
-	// Prüfen, dass beide Targets korrekt gesetzt sind
-	expectedPaths := []string{"/tmp/output1", "/tmp/output2"}
-	for i, target := range worker.OutputTargets {
+	for i, target := range actualTargets {
 		if target.Type != "filesystem" {
 			t.Errorf("Target[%d].Type stimmt nicht überein. Erwartet: filesystem, Bekommen: %s", i, target.Type)
 		}
@@ -189,92 +84,101 @@ func TestNewWorker_MultipleTargets(t *testing.T) {
 	}
 }
 
-func TestNewWorker_StopChannelInitialized(t *testing.T) {
-	// Test-Setup: Temporäres Verzeichnis erstellen
-	tempDir, err := os.MkdirTemp("", "worker_test_stop_*")
-	if err != nil {
-		t.Fatalf("Fehler beim Erstellen des temporären Verzeichnisses: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
+func TestNewWorker_ValidInput(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "worker_test_*")
+	defer cleanup()
 
-	targets := []config.OutputTarget{
-		{Type: "filesystem", Path: "/tmp/output"},
-	}
-
-	// NewWorker aufrufen
+	targets := createFilesystemTargets()
 	worker := NewWorker(tempDir, targets)
 
-	// Prüfen, dass stopChan nicht nil ist
-	if worker.stopChan == nil {
-		t.Fatal("stopChan sollte nicht nil sein")
-	}
+	assertWorkerBasics(t, worker, tempDir, 1)
+}
 
-	// Test: stopChan sollte den richtigen Typ haben
-	// Da es ein unbepufferter Channel ist, können wir nur prüfen ob er existiert
-	// Ein Sende-/Empfangstest würde blockieren
+func TestNewWorker_NonExistentInputDir(t *testing.T) {
+	// Test-Setup: Nicht existierendes Verzeichnis
+	nonExistentDir := filepath.Join(os.TempDir(), "non_existent_worker_test")
+
+	// Sicherstellen, dass das Verzeichnis nicht existiert
+	os.RemoveAll(nonExistentDir)
+	defer os.RemoveAll(nonExistentDir)
+
+	targets := createFilesystemTargets()
+	worker := NewWorker(nonExistentDir, targets)
+
+	assertWorkerBasics(t, worker, nonExistentDir, 1)
+
+	// Prüfen, dass das Verzeichnis erstellt wurde
+	if _, err := os.Stat(nonExistentDir); os.IsNotExist(err) {
+		t.Error("Input-Verzeichnis sollte erstellt worden sein")
+	}
+}
+
+func TestNewWorker_EmptyTargets(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "worker_test_empty_*")
+	defer cleanup()
+
+	var targets []config.OutputTarget
+	worker := NewWorker(tempDir, targets)
+
+	assertWorkerBasics(t, worker, tempDir, 0)
+}
+
+func TestNewWorker_FilesystemTarget(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "worker_test_fs_*")
+	defer cleanup()
+
+	expectedPath := "/tmp/test-output"
+	targets := createFilesystemTargets(expectedPath)
+	worker := NewWorker(tempDir, targets)
+
+	assertWorkerBasics(t, worker, tempDir, 1)
+	assertTargets(t, worker.OutputTargets, []string{expectedPath})
+}
+
+func TestNewWorker_MultipleTargets(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "worker_test_multi_*")
+	defer cleanup()
+
+	expectedPaths := []string{"/tmp/output1", "/tmp/output2"}
+	targets := createFilesystemTargets(expectedPaths...)
+	worker := NewWorker(tempDir, targets)
+
+	assertWorkerBasics(t, worker, tempDir, 2)
+	assertTargets(t, worker.OutputTargets, expectedPaths)
+}
+
+func TestNewWorker_StopChannelInitialized(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "worker_test_stop_*")
+	defer cleanup()
+
+	targets := createFilesystemTargets()
+	worker := NewWorker(tempDir, targets)
+
+	assertWorkerBasics(t, worker, tempDir, 1)
+	// stopChan wird bereits in assertWorkerBasics -> assertWorkerComponents geprüft
 }
 
 func TestNewWorker_ComponentsProperlyInitialized(t *testing.T) {
-	// Test-Setup: Temporäres Verzeichnis erstellen
-	tempDir, err := os.MkdirTemp("", "worker_test_components_*")
-	if err != nil {
-		t.Fatalf("Fehler beim Erstellen des temporären Verzeichnisses: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
+	tempDir, cleanup := setupTempDir(t, "worker_test_components_*")
+	defer cleanup()
 
-	targets := []config.OutputTarget{
-		{Type: "filesystem", Path: "/tmp/output"},
-	}
-
-	// NewWorker aufrufen
+	targets := createFilesystemTargets()
 	worker := NewWorker(tempDir, targets)
 
-	// Detaillierte Prüfung der Komponenten
-	if worker.S3ClientManager == nil {
-		t.Fatal("S3ClientManager sollte nicht nil sein")
-	}
-
-	if worker.FileHandler == nil {
-		t.Fatal("FileHandler sollte nicht nil sein")
-	}
-
-	if worker.FileWatcher == nil {
-		t.Fatal("FileWatcher sollte nicht nil sein")
-	}
-
-	// Prüfen, dass FileHandler die korrekten Targets hat
-	// (Direkter Zugriff auf Felder ist schwierig, daher nur Nil-Check)
-	if worker.FileHandler == nil {
-		t.Error("FileHandler sollte mit Targets initialisiert sein")
-	}
+	assertWorkerBasics(t, worker, tempDir, 1)
+	// Detaillierte Komponentenprüfung wird bereits in assertWorkerComponents durchgeführt
 }
 
 func TestNewWorker_InputDirValidation(t *testing.T) {
-	// Test-Setup: Verzeichnis mit speziellen Zeichen
-	tempBaseDir, err := os.MkdirTemp("", "worker_test_special_*")
-	if err != nil {
-		t.Fatalf("Fehler beim Erstellen des temporären Verzeichnisses: %v", err)
-	}
-	defer os.RemoveAll(tempBaseDir)
+	tempBaseDir, cleanup := setupTempDir(t, "worker_test_special_*")
+	defer cleanup()
 
 	// Unterverzeichnis mit Leerzeichen und speziellen Zeichen
 	specialDir := filepath.Join(tempBaseDir, "test dir with spaces")
-
-	targets := []config.OutputTarget{
-		{Type: "filesystem", Path: "/tmp/output"},
-	}
-
-	// NewWorker aufrufen
+	targets := createFilesystemTargets()
 	worker := NewWorker(specialDir, targets)
 
-	// Assertions
-	if worker == nil {
-		t.Fatal("Worker sollte nicht nil sein")
-	}
-
-	if worker.InputDir != specialDir {
-		t.Errorf("InputDir stimmt nicht überein. Erwartet: %s, Bekommen: %s", specialDir, worker.InputDir)
-	}
+	assertWorkerBasics(t, worker, specialDir, 1)
 
 	// Prüfen, dass das Verzeichnis erstellt wurde
 	if _, err := os.Stat(specialDir); os.IsNotExist(err) {
@@ -283,37 +187,15 @@ func TestNewWorker_InputDirValidation(t *testing.T) {
 }
 
 func TestNewWorker_DifferentTargetTypes(t *testing.T) {
-	// Test-Setup: Temporäres Verzeichnis erstellen
-	tempDir, err := os.MkdirTemp("", "worker_test_types_*")
-	if err != nil {
-		t.Fatalf("Fehler beim Erstellen des temporären Verzeichnisses: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
+	tempDir, cleanup := setupTempDir(t, "worker_test_types_*")
+	defer cleanup()
 
-	// Verschiedene Target-Typen (nur gültige, da ungültige zu os.Exit führen)
-	targets := []config.OutputTarget{
-		{Type: "filesystem", Path: "/tmp/output1"},
-		{Type: "filesystem", Path: "/tmp/output2"},
-	}
-
-	// NewWorker aufrufen
+	expectedPaths := []string{"/tmp/output1", "/tmp/output2"}
+	targets := createFilesystemTargets(expectedPaths...)
 	worker := NewWorker(tempDir, targets)
 
-	// Assertions
-	if worker == nil {
-		t.Fatal("Worker sollte nicht nil sein")
-	}
-
-	if len(worker.OutputTargets) != 2 {
-		t.Errorf("Anzahl der OutputTargets stimmt nicht überein. Erwartet: 2, Bekommen: %d", len(worker.OutputTargets))
-	}
-
-	// Prüfen, dass alle Targets den Typ "filesystem" haben
-	for i, target := range worker.OutputTargets {
-		if target.Type != "filesystem" {
-			t.Errorf("Target[%d] hat falschen Typ. Erwartet: filesystem, Bekommen: %s", i, target.Type)
-		}
-	}
+	assertWorkerBasics(t, worker, tempDir, 2)
+	assertTargets(t, worker.OutputTargets, expectedPaths)
 }
 
 // Hinweis: Tests für ungültige Eingaben (leerer InputDir, ungültige S3-Konfiguration)
