@@ -7,6 +7,28 @@ import (
 	"testing"
 )
 
+// Test constants to reduce duplication
+const (
+	testInputPath     = "/test/input"
+	testOutput1Path   = "/test/output1"
+	testS3BucketPath  = "s3://bucket/path"
+	testRemotePath    = "/remote/path"
+	testJSONOutput1   = "/json/output1"
+	testJSONS3Path    = "s3://json-bucket/path"
+	testValidPath1    = "/test/path1"
+	testValidPath2    = "/test/path2"
+	testValidFilePath = "/valid/path"
+
+	testMinioEndpoint = "minio.example.com"
+	testFTPHost       = "ftp.example.com"
+	testS3Endpoint    = "s3.amazonaws.com"
+	testAccessKey     = "access123"
+	testSecretKey     = "secret123"
+	testUsername      = "user"
+	testPassword      = "pass"
+	testRegion        = "us-east-1"
+)
+
 func TestEnvConfig_SetDefaults(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -148,45 +170,45 @@ func TestEnvConfig_LoadFromEnvironment(t *testing.T) {
 			name: "basic environment variables",
 			envVars: map[string]string{
 				"LOG_LEVEL": "DEBUG",
-				"INPUT":     "/test/input",
+				"INPUT":     testInputPath,
 			},
 			expected: EnvConfig{
 				Log: struct {
 					Level string `yaml:"level"`
 				}{Level: "DEBUG"},
-				Input: "/test/input",
+				Input: testInputPath,
 			},
 		},
 		{
 			name: "flat output structure",
 			envVars: map[string]string{
 				"LOG_LEVEL":           "INFO",
-				"INPUT":               "/test/input",
-				"OUTPUT_1_PATH":       "/test/output1",
+				"INPUT":               testInputPath,
+				"OUTPUT_1_PATH":       testOutput1Path,
 				"OUTPUT_1_TYPE":       "file",
-				"OUTPUT_2_PATH":       "s3://bucket/path",
+				"OUTPUT_2_PATH":       testS3BucketPath,
 				"OUTPUT_2_TYPE":       "s3",
-				"OUTPUT_2_ENDPOINT":   "minio.example.com",
-				"OUTPUT_2_ACCESS_KEY": "access123",
-				"OUTPUT_2_SECRET_KEY": "secret123",
+				"OUTPUT_2_ENDPOINT":   testMinioEndpoint,
+				"OUTPUT_2_ACCESS_KEY": testAccessKey,
+				"OUTPUT_2_SECRET_KEY": testSecretKey,
 				"OUTPUT_2_SSL":        "true",
-				"OUTPUT_2_REGION":     "us-east-1",
+				"OUTPUT_2_REGION":     testRegion,
 			},
 			expected: EnvConfig{
 				Log: struct {
 					Level string `yaml:"level"`
 				}{Level: "INFO"},
-				Input: "/test/input",
+				Input: testInputPath,
 				Output: []OutputTarget{
-					{Path: "/test/output1", Type: "file"},
+					{Path: testOutput1Path, Type: "file"},
 					{
-						Path:      "s3://bucket/path",
+						Path:      testS3BucketPath,
 						Type:      "s3",
-						Endpoint:  "minio.example.com",
-						AccessKey: "access123",
-						SecretKey: "secret123",
+						Endpoint:  testMinioEndpoint,
+						AccessKey: testAccessKey,
+						SecretKey: testSecretKey,
 						SSL:       boolPtr(true),
-						Region:    "us-east-1",
+						Region:    testRegion,
 					},
 				},
 			},
@@ -194,22 +216,22 @@ func TestEnvConfig_LoadFromEnvironment(t *testing.T) {
 		{
 			name: "FTP output configuration",
 			envVars: map[string]string{
-				"INPUT":             "/test/input",
-				"OUTPUT_1_PATH":     "/remote/path",
+				"INPUT":             testInputPath,
+				"OUTPUT_1_PATH":     testRemotePath,
 				"OUTPUT_1_TYPE":     "ftp",
-				"OUTPUT_1_HOST":     "ftp.example.com",
-				"OUTPUT_1_USERNAME": "user",
-				"OUTPUT_1_PASSWORD": "pass",
+				"OUTPUT_1_HOST":     testFTPHost,
+				"OUTPUT_1_USERNAME": testUsername,
+				"OUTPUT_1_PASSWORD": testPassword,
 			},
 			expected: EnvConfig{
-				Input: "/test/input",
+				Input: testInputPath,
 				Output: []OutputTarget{
 					{
-						Path:     "/remote/path",
+						Path:     testRemotePath,
 						Type:     "ftp",
-						Host:     "ftp.example.com",
-						Username: "user",
-						Password: "pass",
+						Host:     testFTPHost,
+						Username: testUsername,
+						Password: testPassword,
 					},
 				},
 			},
@@ -217,16 +239,16 @@ func TestEnvConfig_LoadFromEnvironment(t *testing.T) {
 		{
 			name: "SSL false configuration",
 			envVars: map[string]string{
-				"INPUT":         "/test/input",
-				"OUTPUT_1_PATH": "s3://bucket/path",
+				"INPUT":         testInputPath,
+				"OUTPUT_1_PATH": testS3BucketPath,
 				"OUTPUT_1_TYPE": "s3",
 				"OUTPUT_1_SSL":  "false",
 			},
 			expected: EnvConfig{
-				Input: "/test/input",
+				Input: testInputPath,
 				Output: []OutputTarget{
 					{
-						Path: "s3://bucket/path",
+						Path: testS3BucketPath,
 						Type: "s3",
 						SSL:  boolPtr(false),
 					},
@@ -300,12 +322,12 @@ func TestEnvConfig_LoadFromEnvironment_JSONFallback(t *testing.T) {
 
 	// Test JSON fallback
 	targets := []OutputTarget{
-		{Path: "/json/output1", Type: "file"},
-		{Path: "s3://json-bucket/path", Type: "s3", Endpoint: "s3.amazonaws.com"},
+		{Path: testJSONOutput1, Type: "file"},
+		{Path: testJSONS3Path, Type: "s3", Endpoint: testS3Endpoint},
 	}
 	targetsJSON, _ := json.Marshal(targets)
 
-	os.Setenv("INPUT", "/test/input")
+	os.Setenv("INPUT", testInputPath)
 	os.Setenv("OUTPUTS", string(targetsJSON))
 
 	config := EnvConfig{}
@@ -318,8 +340,8 @@ func TestEnvConfig_LoadFromEnvironment_JSONFallback(t *testing.T) {
 		t.Errorf("Expected 2 output targets, got %d", len(config.Output))
 	}
 
-	if config.Output[0].Path != "/json/output1" {
-		t.Errorf("First target path = %v, want %v", config.Output[0].Path, "/json/output1")
+	if config.Output[0].Path != testJSONOutput1 {
+		t.Errorf("First target path = %v, want %v", config.Output[0].Path, testJSONOutput1)
 	}
 }
 
@@ -332,7 +354,7 @@ func TestEnvConfig_LoadFromEnvironment_InvalidJSON(t *testing.T) {
 	clearTestEnvironment()
 
 	// Test invalid JSON - should not crash
-	os.Setenv("INPUT", "/test/input")
+	os.Setenv("INPUT", testInputPath)
 	os.Setenv("OUTPUTS", "invalid json")
 
 	config := EnvConfig{}
@@ -361,7 +383,7 @@ func TestEnvConfig_LoadOutputTargetsEdgeCases(t *testing.T) {
 			name: "target without path should be ignored",
 			envVars: map[string]string{
 				"OUTPUT_1_TYPE": "file",
-				"OUTPUT_2_PATH": "/valid/path",
+				"OUTPUT_2_PATH": testValidFilePath,
 				"OUTPUT_2_TYPE": "file",
 			},
 			expectedCount: 1,
@@ -369,7 +391,7 @@ func TestEnvConfig_LoadOutputTargetsEdgeCases(t *testing.T) {
 		{
 			name: "malformed environment variables should be ignored",
 			envVars: map[string]string{
-				"OUTPUT_1_PATH":    "/test/path",
+				"OUTPUT_1_PATH":    testValidPath1,
 				"OUTPUT_INVALID":   "should be ignored",
 				"NOTOUTPUT_1_PATH": "should be ignored",
 			},
@@ -378,9 +400,9 @@ func TestEnvConfig_LoadOutputTargetsEdgeCases(t *testing.T) {
 		{
 			name: "mixed valid and invalid SSL values",
 			envVars: map[string]string{
-				"OUTPUT_1_PATH": "/test/path1",
+				"OUTPUT_1_PATH": testValidPath1,
 				"OUTPUT_1_SSL":  "true",
-				"OUTPUT_2_PATH": "/test/path2",
+				"OUTPUT_2_PATH": testValidPath2,
 				"OUTPUT_2_SSL":  "invalid",
 			},
 			expectedCount: 2,
