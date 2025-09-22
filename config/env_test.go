@@ -17,18 +17,24 @@ func TestEnvConfig_SetDefaults(t *testing.T) {
 			name:   "empty config sets defaults",
 			config: EnvConfig{},
 			expected: EnvConfig{
-				Log:   struct{ Level string `yaml:"level"` }{Level: "INFO"},
+				Log: struct {
+					Level string `yaml:"level"`
+				}{Level: "INFO"},
 				Input: "./input",
 			},
 		},
 		{
 			name: "existing values are preserved",
 			config: EnvConfig{
-				Log:   struct{ Level string `yaml:"level"` }{Level: "DEBUG"},
+				Log: struct {
+					Level string `yaml:"level"`
+				}{Level: "DEBUG"},
 				Input: "/custom/input",
 			},
 			expected: EnvConfig{
-				Log:   struct{ Level string `yaml:"level"` }{Level: "DEBUG"},
+				Log: struct {
+					Level string `yaml:"level"`
+				}{Level: "DEBUG"},
 				Input: "/custom/input",
 			},
 		},
@@ -145,27 +151,31 @@ func TestEnvConfig_LoadFromEnvironment(t *testing.T) {
 				"INPUT":     "/test/input",
 			},
 			expected: EnvConfig{
-				Log:   struct{ Level string `yaml:"level"` }{Level: "DEBUG"},
+				Log: struct {
+					Level string `yaml:"level"`
+				}{Level: "DEBUG"},
 				Input: "/test/input",
 			},
 		},
 		{
 			name: "flat output structure",
 			envVars: map[string]string{
-				"LOG_LEVEL":        "INFO",
-				"INPUT":            "/test/input",
-				"OUTPUT_1_PATH":    "/test/output1",
-				"OUTPUT_1_TYPE":    "file",
-				"OUTPUT_2_PATH":    "s3://bucket/path",
-				"OUTPUT_2_TYPE":    "s3",
-				"OUTPUT_2_ENDPOINT": "minio.example.com",
+				"LOG_LEVEL":           "INFO",
+				"INPUT":               "/test/input",
+				"OUTPUT_1_PATH":       "/test/output1",
+				"OUTPUT_1_TYPE":       "file",
+				"OUTPUT_2_PATH":       "s3://bucket/path",
+				"OUTPUT_2_TYPE":       "s3",
+				"OUTPUT_2_ENDPOINT":   "minio.example.com",
 				"OUTPUT_2_ACCESS_KEY": "access123",
 				"OUTPUT_2_SECRET_KEY": "secret123",
-				"OUTPUT_2_SSL":     "true",
-				"OUTPUT_2_REGION":  "us-east-1",
+				"OUTPUT_2_SSL":        "true",
+				"OUTPUT_2_REGION":     "us-east-1",
 			},
 			expected: EnvConfig{
-				Log:   struct{ Level string `yaml:"level"` }{Level: "INFO"},
+				Log: struct {
+					Level string `yaml:"level"`
+				}{Level: "INFO"},
 				Input: "/test/input",
 				Output: []OutputTarget{
 					{Path: "/test/output1", Type: "file"},
@@ -184,12 +194,12 @@ func TestEnvConfig_LoadFromEnvironment(t *testing.T) {
 		{
 			name: "FTP output configuration",
 			envVars: map[string]string{
-				"INPUT":              "/test/input",
-				"OUTPUT_1_PATH":      "/remote/path",
-				"OUTPUT_1_TYPE":      "ftp",
-				"OUTPUT_1_HOST":      "ftp.example.com",
-				"OUTPUT_1_USERNAME":  "user",
-				"OUTPUT_1_PASSWORD":  "pass",
+				"INPUT":             "/test/input",
+				"OUTPUT_1_PATH":     "/remote/path",
+				"OUTPUT_1_TYPE":     "ftp",
+				"OUTPUT_1_HOST":     "ftp.example.com",
+				"OUTPUT_1_USERNAME": "user",
+				"OUTPUT_1_PASSWORD": "pass",
 			},
 			expected: EnvConfig{
 				Input: "/test/input",
@@ -207,10 +217,10 @@ func TestEnvConfig_LoadFromEnvironment(t *testing.T) {
 		{
 			name: "SSL false configuration",
 			envVars: map[string]string{
-				"INPUT":            "/test/input",
-				"OUTPUT_1_PATH":    "s3://bucket/path",
-				"OUTPUT_1_TYPE":    "s3",
-				"OUTPUT_1_SSL":     "false",
+				"INPUT":         "/test/input",
+				"OUTPUT_1_PATH": "s3://bucket/path",
+				"OUTPUT_1_TYPE": "s3",
+				"OUTPUT_1_SSL":  "false",
 			},
 			expected: EnvConfig{
 				Input: "/test/input",
@@ -250,18 +260,31 @@ func TestEnvConfig_LoadFromEnvironment(t *testing.T) {
 				t.Errorf("Input = %v, want %v", config.Input, tt.expected.Input)
 			}
 
-			// Compare output targets
+			// Compare output targets - order independent
 			if len(config.Output) != len(tt.expected.Output) {
 				t.Errorf("Output length = %v, want %v", len(config.Output), len(tt.expected.Output))
 				return
 			}
 
-			for i, expectedTarget := range tt.expected.Output {
-				if i >= len(config.Output) {
-					t.Errorf("Missing output target at index %d", i)
+			// Create maps for comparison to ignore order
+			actualTargets := make(map[string]OutputTarget)
+			expectedTargets := make(map[string]OutputTarget)
+
+			for _, target := range config.Output {
+				actualTargets[target.Path] = target
+			}
+			for _, target := range tt.expected.Output {
+				expectedTargets[target.Path] = target
+			}
+
+			// Compare each expected target
+			for path, expectedTarget := range expectedTargets {
+				actualTarget, exists := actualTargets[path]
+				if !exists {
+					t.Errorf("Missing output target with path: %s", path)
 					continue
 				}
-				compareOutputTarget(t, config.Output[i], expectedTarget, i)
+				compareOutputTargetByPath(t, actualTarget, expectedTarget, path)
 			}
 		})
 	}
@@ -346,8 +369,8 @@ func TestEnvConfig_LoadOutputTargetsEdgeCases(t *testing.T) {
 		{
 			name: "malformed environment variables should be ignored",
 			envVars: map[string]string{
-				"OUTPUT_1_PATH": "/test/path",
-				"OUTPUT_INVALID": "should be ignored",
+				"OUTPUT_1_PATH":    "/test/path",
+				"OUTPUT_INVALID":   "should be ignored",
 				"NOTOUTPUT_1_PATH": "should be ignored",
 			},
 			expectedCount: 1,
@@ -391,6 +414,41 @@ func TestEnvConfig_LoadOutputTargetsEdgeCases(t *testing.T) {
 
 func boolPtr(b bool) *bool {
 	return &b
+}
+
+func compareOutputTargetByPath(t *testing.T, actual, expected OutputTarget, path string) {
+	if actual.Path != expected.Path {
+		t.Errorf("Output[%s].Path = %v, want %v", path, actual.Path, expected.Path)
+	}
+	if actual.Type != expected.Type {
+		t.Errorf("Output[%s].Type = %v, want %v", path, actual.Type, expected.Type)
+	}
+	if actual.Endpoint != expected.Endpoint {
+		t.Errorf("Output[%s].Endpoint = %v, want %v", path, actual.Endpoint, expected.Endpoint)
+	}
+	if actual.AccessKey != expected.AccessKey {
+		t.Errorf("Output[%s].AccessKey = %v, want %v", path, actual.AccessKey, expected.AccessKey)
+	}
+	if actual.SecretKey != expected.SecretKey {
+		t.Errorf("Output[%s].SecretKey = %v, want %v", path, actual.SecretKey, expected.SecretKey)
+	}
+	if (actual.SSL == nil) != (expected.SSL == nil) {
+		t.Errorf("Output[%s].SSL nil mismatch: actual=%v, expected=%v", path, actual.SSL == nil, expected.SSL == nil)
+	} else if actual.SSL != nil && expected.SSL != nil && *actual.SSL != *expected.SSL {
+		t.Errorf("Output[%s].SSL = %v, want %v", path, *actual.SSL, *expected.SSL)
+	}
+	if actual.Region != expected.Region {
+		t.Errorf("Output[%s].Region = %v, want %v", path, actual.Region, expected.Region)
+	}
+	if actual.Host != expected.Host {
+		t.Errorf("Output[%s].Host = %v, want %v", path, actual.Host, expected.Host)
+	}
+	if actual.Username != expected.Username {
+		t.Errorf("Output[%s].Username = %v, want %v", path, actual.Username, expected.Username)
+	}
+	if actual.Password != expected.Password {
+		t.Errorf("Output[%s].Password = %v, want %v", path, actual.Password, expected.Password)
+	}
 }
 
 func compareOutputTarget(t *testing.T, actual, expected OutputTarget, index int) {
