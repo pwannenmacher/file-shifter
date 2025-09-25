@@ -478,41 +478,6 @@ func compareOutputTargetByPath(t *testing.T, actual, expected OutputTarget, path
 	}
 }
 
-func compareOutputTarget(t *testing.T, actual, expected OutputTarget, index int) {
-	if actual.Path != expected.Path {
-		t.Errorf("Output[%d].Path = %v, want %v", index, actual.Path, expected.Path)
-	}
-	if actual.Type != expected.Type {
-		t.Errorf("Output[%d].Type = %v, want %v", index, actual.Type, expected.Type)
-	}
-	if actual.Endpoint != expected.Endpoint {
-		t.Errorf("Output[%d].Endpoint = %v, want %v", index, actual.Endpoint, expected.Endpoint)
-	}
-	if actual.AccessKey != expected.AccessKey {
-		t.Errorf("Output[%d].AccessKey = %v, want %v", index, actual.AccessKey, expected.AccessKey)
-	}
-	if actual.SecretKey != expected.SecretKey {
-		t.Errorf("Output[%d].SecretKey = %v, want %v", index, actual.SecretKey, expected.SecretKey)
-	}
-	if (actual.SSL == nil) != (expected.SSL == nil) {
-		t.Errorf("Output[%d].SSL nil mismatch: actual=%v, expected=%v", index, actual.SSL == nil, expected.SSL == nil)
-	} else if actual.SSL != nil && expected.SSL != nil && *actual.SSL != *expected.SSL {
-		t.Errorf("Output[%d].SSL = %v, want %v", index, *actual.SSL, *expected.SSL)
-	}
-	if actual.Region != expected.Region {
-		t.Errorf("Output[%d].Region = %v, want %v", index, actual.Region, expected.Region)
-	}
-	if actual.Host != expected.Host {
-		t.Errorf("Output[%d].Host = %v, want %v", index, actual.Host, expected.Host)
-	}
-	if actual.Username != expected.Username {
-		t.Errorf("Output[%d].Username = %v, want %v", index, actual.Username, expected.Username)
-	}
-	if actual.Password != expected.Password {
-		t.Errorf("Output[%d].Password = %v, want %v", index, actual.Password, expected.Password)
-	}
-}
-
 func backupEnvironment() map[string]string {
 	env := make(map[string]string)
 	for _, kv := range os.Environ() {

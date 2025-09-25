@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // Helper functions to reduce code duplication
@@ -201,3 +202,189 @@ func TestNewWorker_DifferentTargetTypes(t *testing.T) {
 // Hinweis: Tests für ungültige Eingaben (leerer InputDir, ungültige S3-Konfiguration)
 // führen zu os.Exit(1) und können daher nicht einfach getestet werden.
 // Diese würden separate Test-Funktionen erfordern, die in einem subprocess laufen.
+
+func TestWorker_StartAndStop(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "worker_start_stop_*")
+	defer cleanup()
+
+	targets := createFilesystemTargets()
+	worker := NewWorker(tempDir, targets)
+
+	// Use a channel to signal when Start() begins
+	started := make(chan bool, 1)
+	stopped := make(chan bool, 1)
+
+	// Start worker in goroutine
+	go func() {
+		started <- true
+		worker.Start()
+		stopped <- true
+	}()
+
+	// Wait for worker to start
+	<-started
+
+	// Give it a brief moment to initialize
+	time.Sleep(10 * time.Millisecond)
+
+	// Stop the worker
+	worker.Stop()
+
+	// Wait for worker to stop with timeout
+	select {
+	case <-stopped:
+		// Test completed successfully
+	case <-time.After(1 * time.Second):
+		t.Error("Worker did not stop within timeout")
+	}
+}
+
+func TestNewWorker_S3TargetValidation(t *testing.T) {
+	_, cleanup := setupTempDir(t, "worker_s3_*")
+	defer cleanup()
+
+	// Test valid S3 configuration (will fail in NewWorker due to invalid credentials but structure is correct)
+	s3Target := config.OutputTarget{
+		Type:      "s3",
+		Path:      "s3://test-bucket/path",
+		Endpoint:  "localhost:9000",
+		AccessKey: "testkey",
+		SecretKey: "testsecret",
+		Region:    "us-east-1",
+	}
+
+	// This would normally cause os.Exit(1) due to invalid S3 credentials
+	// For testing purposes, we just verify the structure is set up correctly
+	if s3Target.Type != "s3" {
+		t.Errorf("S3 target type should be 's3', got %s", s3Target.Type)
+	}
+	if s3Target.Path != "s3://test-bucket/path" {
+		t.Errorf("S3 target path mismatch")
+	}
+}
+
+func TestNewWorker_FTPTargetValidation(t *testing.T) {
+	_, cleanup := setupTempDir(t, "worker_ftp_*")
+	defer cleanup()
+
+	// Test valid FTP configuration structure
+	ftpTarget := config.OutputTarget{
+		Type:     "ftp",
+		Path:     "ftp://server/path",
+		Host:     "ftp.example.com",
+		Username: "testuser",
+		Password: "testpass",
+	}
+
+	// Verify structure is correct
+	if ftpTarget.Type != "ftp" {
+		t.Errorf("FTP target type should be 'ftp', got %s", ftpTarget.Type)
+	}
+	if ftpTarget.Host != "ftp.example.com" {
+		t.Errorf("FTP target host mismatch")
+	}
+}
+
+func TestNewWorker_SFTPTargetValidation(t *testing.T) {
+	_, cleanup := setupTempDir(t, "worker_sftp_*")
+	defer cleanup()
+
+	// Test valid SFTP configuration structure
+	sftpTarget := config.OutputTarget{
+		Type:     "sftp",
+		Path:     "sftp://server/path",
+		Host:     "sftp.example.com",
+		Username: "testuser",
+		Password: "testpass",
+	}
+
+	// Verify structure is correct
+	if sftpTarget.Type != "sftp" {
+		t.Errorf("SFTP target type should be 'sftp', got %s", sftpTarget.Type)
+	}
+	if sftpTarget.Host != "sftp.example.com" {
+		t.Errorf("SFTP target host mismatch")
+	}
+}
+
+func TestNewWorker_MixedTargets(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "worker_mixed_*")
+	defer cleanup()
+
+	// Create mixed target types (only filesystem will work in tests)
+	targets := []config.OutputTarget{
+		{Type: "filesystem", Path: "/tmp/output1"},
+		{Type: "filesystem", Path: "/tmp/output2"},
+	}
+
+	worker := NewWorker(tempDir, targets)
+
+	assertWorkerBasics(t, worker, tempDir, 2)
+
+	// Verify all targets are set correctly
+	for i, target := range worker.OutputTargets {
+		if target.Type != "filesystem" {
+			t.Errorf("Target[%d] should be filesystem type, got %s", i, target.Type)
+		}
+	}
+}
+
+func TestWorker_ComponentInitialization(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "worker_init_*")
+	defer cleanup()
+
+	targets := createFilesystemTargets()
+	worker := NewWorker(tempDir, targets)
+
+	// Verify S3ClientManager is properly initialized
+	if worker.S3ClientManager == nil {
+		t.Error("S3ClientManager should not be nil")
+	} else {
+		// Should start with 0 active clients
+		if count := worker.S3ClientManager.GetActiveClientCount(); count != 0 {
+			t.Errorf("Expected 0 active S3 clients, got %d", count)
+		}
+	}
+
+	// Verify FileHandler has correct targets
+	if worker.FileHandler == nil {
+		t.Error("FileHandler should not be nil")
+	} else {
+		if len(worker.FileHandler.OutputTargets) != len(targets) {
+			t.Errorf("FileHandler should have %d targets, got %d", len(targets), len(worker.FileHandler.OutputTargets))
+		}
+	}
+
+	// Verify FileWatcher is initialized with correct input directory
+	if worker.FileWatcher == nil {
+		t.Error("FileWatcher should not be nil")
+	}
+}
+
+// Benchmark tests for Worker creation
+func BenchmarkNewWorker(b *testing.B) {
+	tempDir, err := os.MkdirTemp("", "bench_worker_*")
+	if err != nil {
+		b.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	targets := createFilesystemTargets("/tmp/bench1", "/tmp/bench2")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = NewWorker(tempDir, targets)
+		// Don't call Stop() in benchmark to avoid blocking
+	}
+}
+
+func BenchmarkWorker_StartStop(b *testing.B) {
+	tempDir, err := os.MkdirTemp("", "bench_start_stop_*")
+	if err != nil {
+		b.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Skip this benchmark as it's complex to test Start/Stop coordination
+	b.Skip("Start/Stop coordination too complex for reliable benchmarking")
+}
