@@ -243,23 +243,20 @@ func TestNewWorker_S3TargetValidation(t *testing.T) {
 	_, cleanup := setupTempDir(t, "worker_s3_*")
 	defer cleanup()
 
-	// Test valid S3 configuration (will fail in NewWorker due to invalid credentials but structure is correct)
+	// Test that S3 target structure is properly defined with S3-specific configuration
+	// Note: We can't actually test S3 client creation without real credentials
+	// This test validates the S3-specific Endpoint field
 	s3Target := config.OutputTarget{
-		Type:      "s3",
-		Path:      "s3://test-bucket/path",
-		Endpoint:  "localhost:9000",
-		AccessKey: "testkey",
-		SecretKey: "testsecret",
-		Region:    "us-east-1",
+		Type:     "s3",
+		Endpoint: "s3.amazonaws.com",
 	}
 
-	// This would normally cause os.Exit(1) due to invalid S3 credentials
-	// For testing purposes, we just verify the structure is set up correctly
+	// Verify S3-specific structure is correct
 	if s3Target.Type != "s3" {
 		t.Errorf("S3 target type should be 's3', got %s", s3Target.Type)
 	}
-	if s3Target.Path != "s3://test-bucket/path" {
-		t.Errorf("S3 target path mismatch")
+	if s3Target.Endpoint != "s3.amazonaws.com" {
+		t.Errorf("S3 target endpoint should be 's3.amazonaws.com', got %s", s3Target.Endpoint)
 	}
 }
 
@@ -267,21 +264,19 @@ func TestNewWorker_FTPTargetValidation(t *testing.T) {
 	_, cleanup := setupTempDir(t, "worker_ftp_*")
 	defer cleanup()
 
-	// Test valid FTP configuration structure
+	// Test that FTP target structure is properly defined with FTP-specific configuration
+	// This test validates the FTP-specific Host field
 	ftpTarget := config.OutputTarget{
-		Type:     "ftp",
-		Path:     "ftp://server/path",
-		Host:     "ftp.example.com",
-		Username: "testuser",
-		Password: "testpass",
+		Type: "ftp",
+		Host: "ftp.example.com",
 	}
 
-	// Verify structure is correct
+	// Verify FTP-specific structure is correct
 	if ftpTarget.Type != "ftp" {
 		t.Errorf("FTP target type should be 'ftp', got %s", ftpTarget.Type)
 	}
 	if ftpTarget.Host != "ftp.example.com" {
-		t.Errorf("FTP target host mismatch")
+		t.Errorf("FTP target host should be 'ftp.example.com', got %s", ftpTarget.Host)
 	}
 }
 
@@ -289,21 +284,19 @@ func TestNewWorker_SFTPTargetValidation(t *testing.T) {
 	_, cleanup := setupTempDir(t, "worker_sftp_*")
 	defer cleanup()
 
-	// Test valid SFTP configuration structure
+	// Test that SFTP target structure is properly defined with SFTP-specific configuration
+	// This test validates the SFTP-specific Host field
 	sftpTarget := config.OutputTarget{
-		Type:     "sftp",
-		Path:     "sftp://server/path",
-		Host:     "sftp.example.com",
-		Username: "testuser",
-		Password: "testpass",
+		Type: "sftp",
+		Host: "sftp.example.com",
 	}
 
-	// Verify structure is correct
+	// Verify SFTP-specific structure is correct
 	if sftpTarget.Type != "sftp" {
 		t.Errorf("SFTP target type should be 'sftp', got %s", sftpTarget.Type)
 	}
 	if sftpTarget.Host != "sftp.example.com" {
-		t.Errorf("SFTP target host mismatch")
+		t.Errorf("SFTP target host should be 'sftp.example.com', got %s", sftpTarget.Host)
 	}
 }
 
