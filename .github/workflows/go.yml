@@ -1,7 +1,7 @@
-# This workflow will build a golang project
+# This workflow will build a golang project, run tests, create releases and deploy to DockerHub
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
 
-name: Go
+name: Go CI/CD Pipeline
 
 on:
   push:
@@ -9,28 +9,122 @@ on:
   pull_request:
     branches: [ "main" ]
 
-jobs:
+env:
+  GO_VERSION: '1.25'
+  REGISTRY: docker.io
+  IMAGE_NAME: pwannenmacher/file-shifter
 
-  build:
+jobs:
+  # Job 1: Build, Test und SonarCloud für PRs und main branch
+  build-test-analyze:
     runs-on: ubuntu-latest
+    outputs:
+      new-version: ${{ steps.version.outputs.new_tag }}
+      changelog: ${{ steps.version.outputs.changelog }}
     steps:
-    - uses: actions/checkout@v5
+    - name: Checkout code
+      uses: actions/checkout@v5
       with:
-        fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+        fetch-depth: 0  # Shallow clones should be disabled for better SonarCloud analysis and versioning
 
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: '1.25'
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
 
     - name: Build
       run: go build -v ./...
 
-    - name: Test with Coverage
+    - name: Run Tests with Coverage
       run: go test -v -coverprofile=coverage.out -covermode=atomic ./...
+
+    - name: Generate Version (main branch only)
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      id: version
+      uses: mathieudutour/github-tag-action@v6.1
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        default_bump: patch
+        release_branches: main
 
     - name: SonarCloud Scan
       uses: SonarSource/sonarqube-scan-action@v6
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # Job 2: GitHub Release erstellen (nur bei main branch pushes)
+  create-release:
+    needs: build-test-analyze
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.build-test-analyze.outputs.new-version != ''
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Create GitHub Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ needs.build-test-analyze.outputs.new-version }}
+        release_name: Release ${{ needs.build-test-analyze.outputs.new-version }}
+        body: ${{ needs.build-test-analyze.outputs.changelog }}
+        draft: false
+        prerelease: false
+
+  # Job 3: Multi-Arch Docker Build und Push (nur bei main branch pushes nach erfolgreichem Release)
+  docker-build-push:
+    needs: [build-test-analyze, create-release]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.build-test-analyze.outputs.new-version != ''
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}},value=${{ needs.build-test-analyze.outputs.new-version }}
+          type=semver,pattern={{major}}.{{minor}},value=${{ needs.build-test-analyze.outputs.new-version }}
+          type=semver,pattern={{major}},value=${{ needs.build-test-analyze.outputs.new-version }}
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Multi-Arch Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64,linux/arm/v7
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
