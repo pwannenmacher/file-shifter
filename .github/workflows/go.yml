@@ -9,6 +9,12 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: write
+  pull-requests: read
+  issues: read
+  repository-projects: read
+
 env:
   GO_VERSION: '1.25'
   REGISTRY: docker.io
@@ -73,12 +79,10 @@ jobs:
       uses: actions/checkout@v5
 
     - name: Create GitHub Release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ needs.build-test-analyze.outputs.new-version }}
-        release_name: Release ${{ needs.build-test-analyze.outputs.new-version }}
+        name: Release ${{ needs.build-test-analyze.outputs.new-version }}
         body: ${{ needs.build-test-analyze.outputs.changelog }}
         draft: false
         prerelease: false
