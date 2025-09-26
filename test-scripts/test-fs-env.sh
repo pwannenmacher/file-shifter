@@ -4,7 +4,7 @@ echo "=== Test mit .env für Filesystem-Ziele ==="
 
 # Build die Anwendung
 echo "Baue file-shifter..."
-go build -o file-shifter . || {
+(cd .. && go build -o test-scripts/file-shifter .) || {
     echo "❌ Build fehlgeschlagen"
     exit 1
 }
