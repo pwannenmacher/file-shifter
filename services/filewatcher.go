@@ -23,6 +23,7 @@ type FileWatcher struct {
 	maxRetries      int
 	checkInterval   time.Duration
 	stabilityPeriod time.Duration
+	lsofAvailable   bool
 }
 
 func NewFileWatcher(inputDir string, fileHandler *FileHandler, maxRetries int, checkInterval, stabilityPeriod time.Duration) (*FileWatcher, error) {
@@ -40,6 +41,9 @@ func NewFileWatcher(inputDir string, fileHandler *FileHandler, maxRetries int, c
 		checkInterval:   checkInterval,
 		stabilityPeriod: stabilityPeriod,
 	}
+
+	// lsof-Verfügbarkeit prüfen
+	fw.lsofAvailable = checkLsofAvailable()
 
 	return fw, nil
 }
@@ -192,8 +196,8 @@ func (fw *FileWatcher) waitForCompleteFile(filePath string) error {
 			continue
 		}
 
-		// 3. lsof-Prüfung (nur Unix/macOS)
-		if runtime.GOOS != "windows" && fw.isFileOpenByOtherProcess(filePath) {
+		// 3. lsof-Prüfung (nur Unix/macOS, wenn verfügbar)
+		if runtime.GOOS != "windows" && fw.lsofAvailable && fw.isFileOpenByOtherProcess(filePath) {
 			slog.Debug("Datei ist laut lsof noch geöffnet", "datei", filePath, "versuch", retry+1)
 			time.Sleep(fw.checkInterval)
 			continue
@@ -349,4 +353,20 @@ func (fw *FileWatcher) isHarmlessProcess(processName string) bool {
 		}
 	}
 	return false
+}
+
+// checkLsofAvailable prüft ob lsof-Kommando verfügbar ist
+func checkLsofAvailable() bool {
+	if runtime.GOOS == "windows" {
+		return false
+	}
+
+	_, err := exec.LookPath("lsof")
+	if err != nil {
+		slog.Debug("lsof-Kommando nicht verfügbar - lsof-Prüfungen werden übersprungen", "fehler", err)
+		return false
+	}
+
+	slog.Debug("lsof-Kommando verfügbar - erweiterte Datei-Prüfungen aktiviert")
+	return true
 }

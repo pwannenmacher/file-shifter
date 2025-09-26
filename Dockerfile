@@ -16,8 +16,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
 # Runtime-Stage
 FROM alpine:latest
 
-# Benötigte Pakete installieren
-RUN apk --no-cache add ca-certificates tzdata
+# Benötigte Pakete installieren (inklusive lsof für Datei-Überwachung)
+RUN apk --no-cache add ca-certificates tzdata lsof
 
 WORKDIR /root/
 
