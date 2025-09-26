@@ -141,7 +141,7 @@ func main() {
 	}
 
 	// Worker initialisieren und starten
-	workerService := services.NewWorker(inputDir, outputTargets)
+	workerService := services.NewWorker(inputDir, outputTargets, cfg)
 
 	// Graceful Shutdown Handler
 	sigChan := make(chan os.Signal, 1)

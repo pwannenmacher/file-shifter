@@ -85,12 +85,20 @@ func assertTargets(t *testing.T, actualTargets []config.OutputTarget, expectedPa
 	}
 }
 
+// createDefaultConfig erstellt eine Standard-Konfiguration für Tests
+func createDefaultConfig() *config.EnvConfig {
+	cfg := &config.EnvConfig{}
+	cfg.SetDefaults()
+	return cfg
+}
+
 func TestNewWorker_ValidInput(t *testing.T) {
 	tempDir, cleanup := setupTempDir(t, "worker_test_*")
 	defer cleanup()
 
 	targets := createFilesystemTargets()
-	worker := NewWorker(tempDir, targets)
+	cfg := createDefaultConfig()
+	worker := NewWorker(tempDir, targets, cfg)
 
 	assertWorkerBasics(t, worker, tempDir, 1)
 }
@@ -104,7 +112,8 @@ func TestNewWorker_NonExistentInputDir(t *testing.T) {
 	defer os.RemoveAll(nonExistentDir)
 
 	targets := createFilesystemTargets()
-	worker := NewWorker(nonExistentDir, targets)
+	cfg := createDefaultConfig()
+	worker := NewWorker(nonExistentDir, targets, cfg)
 
 	assertWorkerBasics(t, worker, nonExistentDir, 1)
 
@@ -119,7 +128,8 @@ func TestNewWorker_EmptyTargets(t *testing.T) {
 	defer cleanup()
 
 	var targets []config.OutputTarget
-	worker := NewWorker(tempDir, targets)
+	cfg := createDefaultConfig()
+	worker := NewWorker(tempDir, targets, cfg)
 
 	assertWorkerBasics(t, worker, tempDir, 0)
 }
@@ -130,7 +140,8 @@ func TestNewWorker_FilesystemTarget(t *testing.T) {
 
 	expectedPath := "/tmp/test-output"
 	targets := createFilesystemTargets(expectedPath)
-	worker := NewWorker(tempDir, targets)
+	cfg := createDefaultConfig()
+	worker := NewWorker(tempDir, targets, cfg)
 
 	assertWorkerBasics(t, worker, tempDir, 1)
 	assertTargets(t, worker.OutputTargets, []string{expectedPath})
@@ -142,7 +153,8 @@ func TestNewWorker_MultipleTargets(t *testing.T) {
 
 	expectedPaths := []string{"/tmp/output1", "/tmp/output2"}
 	targets := createFilesystemTargets(expectedPaths...)
-	worker := NewWorker(tempDir, targets)
+	cfg := createDefaultConfig()
+	worker := NewWorker(tempDir, targets, cfg)
 
 	assertWorkerBasics(t, worker, tempDir, 2)
 	assertTargets(t, worker.OutputTargets, expectedPaths)
@@ -153,7 +165,8 @@ func TestNewWorker_StopChannelInitialized(t *testing.T) {
 	defer cleanup()
 
 	targets := createFilesystemTargets()
-	worker := NewWorker(tempDir, targets)
+	cfg := createDefaultConfig()
+	worker := NewWorker(tempDir, targets, cfg)
 
 	assertWorkerBasics(t, worker, tempDir, 1)
 	// stopChan wird bereits in assertWorkerBasics -> assertWorkerComponents geprüft
@@ -164,7 +177,8 @@ func TestNewWorker_ComponentsProperlyInitialized(t *testing.T) {
 	defer cleanup()
 
 	targets := createFilesystemTargets()
-	worker := NewWorker(tempDir, targets)
+	cfg := createDefaultConfig()
+	worker := NewWorker(tempDir, targets, cfg)
 
 	assertWorkerBasics(t, worker, tempDir, 1)
 	// Detaillierte Komponentenprüfung wird bereits in assertWorkerComponents durchgeführt
@@ -177,7 +191,8 @@ func TestNewWorker_InputDirValidation(t *testing.T) {
 	// Unterverzeichnis mit Leerzeichen und speziellen Zeichen
 	specialDir := filepath.Join(tempBaseDir, "test dir with spaces")
 	targets := createFilesystemTargets()
-	worker := NewWorker(specialDir, targets)
+	cfg := createDefaultConfig()
+	worker := NewWorker(specialDir, targets, cfg)
 
 	assertWorkerBasics(t, worker, specialDir, 1)
 
@@ -193,7 +208,8 @@ func TestNewWorker_DifferentTargetTypes(t *testing.T) {
 
 	expectedPaths := []string{"/tmp/output1", "/tmp/output2"}
 	targets := createFilesystemTargets(expectedPaths...)
-	worker := NewWorker(tempDir, targets)
+	cfg := createDefaultConfig()
+	worker := NewWorker(tempDir, targets, cfg)
 
 	assertWorkerBasics(t, worker, tempDir, 2)
 	assertTargets(t, worker.OutputTargets, expectedPaths)
@@ -208,7 +224,8 @@ func TestWorker_StartAndStop(t *testing.T) {
 	defer cleanup()
 
 	targets := createFilesystemTargets()
-	worker := NewWorker(tempDir, targets)
+	cfg := createDefaultConfig()
+	worker := NewWorker(tempDir, targets, cfg)
 
 	// Use a channel to signal when Start() begins
 	started := make(chan bool, 1)
@@ -310,7 +327,8 @@ func TestNewWorker_MixedTargets(t *testing.T) {
 		{Type: "filesystem", Path: "/tmp/output2"},
 	}
 
-	worker := NewWorker(tempDir, targets)
+	cfg := createDefaultConfig()
+	worker := NewWorker(tempDir, targets, cfg)
 
 	assertWorkerBasics(t, worker, tempDir, 2)
 
@@ -327,7 +345,8 @@ func TestWorker_ComponentInitialization(t *testing.T) {
 	defer cleanup()
 
 	targets := createFilesystemTargets()
-	worker := NewWorker(tempDir, targets)
+	cfg := createDefaultConfig()
+	worker := NewWorker(tempDir, targets, cfg)
 
 	// Verify S3ClientManager is properly initialized
 	if worker.S3ClientManager == nil {
@@ -366,7 +385,8 @@ func BenchmarkNewWorker(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = NewWorker(tempDir, targets)
+		cfg := createDefaultConfig()
+		_ = NewWorker(tempDir, targets, cfg)
 		// Don't call Stop() in benchmark to avoid blocking
 	}
 }

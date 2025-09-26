@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -10,8 +11,13 @@ type EnvConfig struct {
 	Log struct {
 		Level string `yaml:"level"`
 	} `yaml:"log"`
-	Input  string       `yaml:"input"`
-	Output OutputConfig `yaml:"output"`
+	Input         string       `yaml:"input"`
+	Output        OutputConfig `yaml:"output"`
+	FileStability struct {
+		MaxRetries      int `yaml:"max-retries"`      // Maximum Anzahl Wiederholungen
+		CheckInterval   int `yaml:"check-interval"`   // Prüf-Intervall in Sekunden
+		StabilityPeriod int `yaml:"stability-period"` // Stabilität-Prüfung in Sekunden
+	} `yaml:"file-stability"`
 }
 
 // LoadFromEnvironment lädt die Konfiguration aus Umgebungsvariablen
@@ -40,6 +46,9 @@ func (c *EnvConfig) LoadFromEnvironment() error {
 			}
 		}
 	}
+
+	// File Stability Konfiguration
+	c.loadFileStabilityFromEnv()
 
 	return nil
 }
@@ -131,6 +140,27 @@ func (c *EnvConfig) loadTargetProperties(target *OutputTarget, index string) {
 	}
 }
 
+// loadFileStabilityFromEnv lädt File-Stability Konfiguration aus Umgebungsvariablen
+func (c *EnvConfig) loadFileStabilityFromEnv() {
+	if maxRetries := os.Getenv("FILE_STABILITY_MAX_RETRIES"); maxRetries != "" {
+		if val, err := strconv.Atoi(maxRetries); err == nil && val > 0 {
+			c.FileStability.MaxRetries = val
+		}
+	}
+
+	if checkInterval := os.Getenv("FILE_STABILITY_CHECK_INTERVAL"); checkInterval != "" {
+		if val, err := strconv.Atoi(checkInterval); err == nil && val > 0 {
+			c.FileStability.CheckInterval = val
+		}
+	}
+
+	if stabilityPeriod := os.Getenv("FILE_STABILITY_PERIOD"); stabilityPeriod != "" {
+		if val, err := strconv.Atoi(stabilityPeriod); err == nil && val > 0 {
+			c.FileStability.StabilityPeriod = val
+		}
+	}
+}
+
 // SetDefaults setzt Standard-Werte für die Konfiguration
 func (c *EnvConfig) SetDefaults() {
 	if c.Log.Level == "" {
@@ -138,6 +168,16 @@ func (c *EnvConfig) SetDefaults() {
 	}
 	if c.Input == "" {
 		c.Input = "./input"
+	}
+	// File Stability Defaults
+	if c.FileStability.MaxRetries == 0 {
+		c.FileStability.MaxRetries = 30 // 30 Versuche
+	}
+	if c.FileStability.CheckInterval == 0 {
+		c.FileStability.CheckInterval = 1 // 1 Sekunde
+	}
+	if c.FileStability.StabilityPeriod == 0 {
+		c.FileStability.StabilityPeriod = 1 // 1 Sekunde
 	}
 }
 

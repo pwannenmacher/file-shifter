@@ -214,6 +214,11 @@ OUTPUT_5_TYPE=ftp
 OUTPUT_5_HOST=ftp.example.com
 OUTPUT_5_USERNAME=ftpuser
 OUTPUT_5_PASSWORD=secret123
+
+# File Stability Konfiguration
+FILE_STABILITY_MAX_RETRIES=30
+FILE_STABILITY_CHECK_INTERVAL=1
+FILE_STABILITY_PERIOD=1
 ```
 
 #### 🔄 Legacy JSON-Struktur (Rückwärtskompatibilität)
@@ -241,6 +246,11 @@ S3_REGION=eu-central-1
 FTP_HOST=server.example.com
 FTP_USERNAME=ftpuser
 FTP_PASSWORD=secret123
+
+# File Stability Konfiguration
+FILE_STABILITY_MAX_RETRIES=30
+FILE_STABILITY_CHECK_INTERVAL=1
+FILE_STABILITY_PERIOD=1
 ```
 
 ### 📄 YAML-Konfiguration (env.yaml)
@@ -283,9 +293,14 @@ output:
     password: your-password
   - path: ftp://my-server2/output6
     type: ftp
-    host: your-ftp-host
-    username: your-username
+    /* Lines 286-288 omitted */
     password: your-password
+
+# File Stability Konfiguration  
+file-stability:
+  max-retries: 30      # Maximum Anzahl Wiederholungen (Default: 30)
+  check-interval: 1    # Prüf-Intervall in Sekunden (Default: 1) 
+  stability-period: 1  # Stabilität-Prüfung in Sekunden (Default: 1)
 ```
 
 #### 💡 Vorteile der neuen Struktur
@@ -614,16 +629,18 @@ output:
     type: filesystem
   - path: s3://backup-bucket/daily
     type: s3
-    endpoint: s3.amazonaws.com
-    access-key: YOUR_ACCESS_KEY
-    secret-key: YOUR_SECRET_KEY
-    ssl: true
+    /* Lines 617-621 omitted */
     region: eu-central-1
   - path: sftp://offsite-server.com/backup
     type: sftp
-    host: offsite-server.com
-    username: backup-user
+    /* Lines 624-626 omitted */
     password: secure-password
+
+# File Stability für robuste Verarbeitung
+file-stability:
+  max-retries: 30      # 30 Versuche für instabile Dateien
+  check-interval: 1    # Alle 1 Sekunde prüfen
+  stability-period: 1  # 1 Sekunde stabil sein
 ```
 
 ### Development-Workflow
