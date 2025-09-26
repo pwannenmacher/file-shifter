@@ -34,7 +34,7 @@ func ParseCLI() *CLIConfig {
 
 	// Check for help flags before parsing
 	for _, arg := range os.Args[1:] {
-		if arg == "-h" || arg == "--help"  {
+		if arg == "-h" || arg == "--help" {
 			cfg.ShowHelp = true
 			printUsage()
 			os.Exit(0)
