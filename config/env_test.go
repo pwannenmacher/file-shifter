@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -701,6 +702,151 @@ func TestEnvConfig_LoadFileStabilityFromEnv(t *testing.T) {
 	}
 }
 
+func TestEnvConfig_LoadFileStabilityFromEnv_NewStructure(t *testing.T) {
+	tests := []struct {
+		name     string
+		setupEnv func()
+		expected struct {
+			MaxRetries      int
+			CheckInterval   int
+			StabilityPeriod int
+		}
+		description string
+	}{
+		{
+			name: "new structure - complete configuration",
+			setupEnv: func() {
+				os.Setenv("file_stability.max_retries", "30")
+				os.Setenv("file_stability.check_interval", "5")
+				os.Setenv("file_stability.period", "10")
+			},
+			expected: struct {
+				MaxRetries      int
+				CheckInterval   int
+				StabilityPeriod int
+			}{
+				MaxRetries:      30,
+				CheckInterval:   5,
+				StabilityPeriod: 10,
+			},
+			description: "Should load new structure configuration",
+		},
+		{
+			name: "new structure - invalid values ignored",
+			setupEnv: func() {
+				os.Setenv("file_stability.max_retries", "invalid")
+				os.Setenv("file_stability.check_interval", "-5")
+				os.Setenv("file_stability.period", "0")
+			},
+			expected: struct {
+				MaxRetries      int
+				CheckInterval   int
+				StabilityPeriod int
+			}{
+				MaxRetries:      0, // Invalid ignored
+				CheckInterval:   0, // Negative ignored
+				StabilityPeriod: 0, // Zero ignored
+			},
+			description: "Should ignore invalid values in new structure",
+		},
+		{
+			name: "new structure overrides old structure",
+			setupEnv: func() {
+				// Set old structure
+				os.Setenv("FILE_STABILITY_MAX_RETRIES", "100")
+				os.Setenv("FILE_STABILITY_CHECK_INTERVAL", "10")
+				os.Setenv("FILE_STABILITY_PERIOD", "20")
+
+				// Set new structure (should override)
+				os.Setenv("file_stability.max_retries", "50")
+				os.Setenv("file_stability.check_interval", "8")
+				os.Setenv("file_stability.period", "15")
+			},
+			expected: struct {
+				MaxRetries      int
+				CheckInterval   int
+				StabilityPeriod int
+			}{
+				MaxRetries:      50, // New structure wins
+				CheckInterval:   8,  // New structure wins
+				StabilityPeriod: 15, // New structure wins
+			},
+			description: "New structure should override old structure",
+		},
+		{
+			name: "new structure partial - some values only",
+			setupEnv: func() {
+				// Old structure
+				os.Setenv("FILE_STABILITY_MAX_RETRIES", "100")
+				os.Setenv("FILE_STABILITY_CHECK_INTERVAL", "10")
+				os.Setenv("FILE_STABILITY_PERIOD", "20")
+
+				// New structure partial
+				os.Setenv("file_stability.max_retries", "25")
+				// No check_interval in new structure
+				os.Setenv("file_stability.period", "12")
+			},
+			expected: struct {
+				MaxRetries      int
+				CheckInterval   int
+				StabilityPeriod int
+			}{
+				MaxRetries:      25, // New structure
+				CheckInterval:   10, // Old structure (new not set)
+				StabilityPeriod: 12, // New structure
+			},
+			description: "Partial new structure should override only set values",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Clear environment
+			clearFileStabilityNewEnv()
+			clearFileStabilityEnv()
+
+			// Setup test environment
+			tt.setupEnv()
+
+			// Create config and load from environment
+			cfg := &EnvConfig{}
+			cfg.loadFileStabilityFromEnv()
+
+			// Verify results
+			if cfg.FileStability.MaxRetries != tt.expected.MaxRetries {
+				t.Errorf("MaxRetries mismatch. Expected: %d, Got: %d",
+					tt.expected.MaxRetries, cfg.FileStability.MaxRetries)
+			}
+
+			if cfg.FileStability.CheckInterval != tt.expected.CheckInterval {
+				t.Errorf("CheckInterval mismatch. Expected: %d, Got: %d",
+					tt.expected.CheckInterval, cfg.FileStability.CheckInterval)
+			}
+
+			if cfg.FileStability.StabilityPeriod != tt.expected.StabilityPeriod {
+				t.Errorf("StabilityPeriod mismatch. Expected: %d, Got: %d",
+					tt.expected.StabilityPeriod, cfg.FileStability.StabilityPeriod)
+			}
+
+			// Clean up
+			clearFileStabilityNewEnv()
+			clearFileStabilityEnv()
+		})
+	}
+}
+
+func clearFileStabilityNewEnv() {
+	newStabilityKeys := []string{
+		"file_stability.max_retries",
+		"file_stability.check_interval",
+		"file_stability.period",
+	}
+
+	for _, key := range newStabilityKeys {
+		os.Unsetenv(key)
+	}
+}
+
 func TestEnvConfig_SetDefaults_FileStability(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -854,5 +1000,270 @@ func clearFileStabilityEnv() {
 
 	for _, key := range fileStabilityKeys {
 		os.Unsetenv(key)
+	}
+}
+
+func TestEnvConfig_LoadOutputFromYAMLEnv(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupEnv    func()
+		expected    []OutputTarget
+		description string
+	}{
+		{
+			name: "single S3 output target",
+			setupEnv: func() {
+				os.Setenv("output.0.path", "s3://test-bucket/path")
+				os.Setenv("output.0.type", "s3")
+				os.Setenv("output.0.endpoint", "s3.amazonaws.com")
+				os.Setenv("output.0.access_key", "AKIATEST")
+				os.Setenv("output.0.secret_key", "secretkey")
+				os.Setenv("output.0.ssl", "true")
+				os.Setenv("output.0.region", "eu-central-1")
+			},
+			expected: []OutputTarget{
+				{
+					Path:      "s3://test-bucket/path",
+					Type:      "s3",
+					Endpoint:  "s3.amazonaws.com",
+					AccessKey: "AKIATEST",
+					SecretKey: "secretkey",
+					SSL:       boolPtr(true),
+					Region:    "eu-central-1",
+				},
+			},
+			description: "Should load complete S3 configuration",
+		},
+		{
+			name: "single FTP output target",
+			setupEnv: func() {
+				os.Setenv("output.0.path", "ftp://server/path")
+				os.Setenv("output.0.type", "ftp")
+				os.Setenv("output.0.host", "ftp.example.com")
+				os.Setenv("output.0.username", "ftpuser")
+				os.Setenv("output.0.password", "ftppass")
+				os.Setenv("output.0.port", "2121")
+			},
+			expected: []OutputTarget{
+				{
+					Path:     "ftp://server/path",
+					Type:     "ftp",
+					Host:     "ftp.example.com",
+					Username: "ftpuser",
+					Password: "ftppass",
+					Port:     2121,
+				},
+			},
+			description: "Should load complete FTP configuration",
+		},
+		{
+			name: "multiple output targets",
+			setupEnv: func() {
+				// Target 0: S3
+				os.Setenv("output.0.path", "s3://bucket1/path1")
+				os.Setenv("output.0.type", "s3")
+				os.Setenv("output.0.endpoint", "s3.aws.com")
+				os.Setenv("output.0.ssl", "false")
+
+				// Target 1: SFTP
+				os.Setenv("output.1.path", "sftp://server/path2")
+				os.Setenv("output.1.type", "sftp")
+				os.Setenv("output.1.host", "sftp.example.com")
+				os.Setenv("output.1.username", "sftpuser")
+				os.Setenv("output.1.port", "22")
+			},
+			expected: []OutputTarget{
+				{
+					Path:     "s3://bucket1/path1",
+					Type:     "s3",
+					Endpoint: "s3.aws.com",
+					SSL:      boolPtr(false),
+				},
+				{
+					Path:     "sftp://server/path2",
+					Type:     "sftp",
+					Host:     "sftp.example.com",
+					Username: "sftpuser",
+					Port:     22,
+				},
+			},
+			description: "Should load multiple targets sequentially",
+		},
+		{
+			name: "minimal configuration",
+			setupEnv: func() {
+				os.Setenv("output.0.path", "file:///tmp/output")
+				os.Setenv("output.0.type", "file")
+			},
+			expected: []OutputTarget{
+				{
+					Path: "file:///tmp/output",
+					Type: "file",
+				},
+			},
+			description: "Should load target with only path and type",
+		},
+		{
+			name: "SSL false as string",
+			setupEnv: func() {
+				os.Setenv("output.0.path", "s3://test-bucket")
+				os.Setenv("output.0.type", "s3")
+				os.Setenv("output.0.ssl", "FALSE")
+			},
+			expected: []OutputTarget{
+				{
+					Path: "s3://test-bucket",
+					Type: "s3",
+					SSL:  boolPtr(false),
+				},
+			},
+			description: "Should handle SSL=FALSE correctly",
+		},
+		{
+			name: "invalid port ignored",
+			setupEnv: func() {
+				os.Setenv("output.0.path", "ftp://server")
+				os.Setenv("output.0.type", "ftp")
+				os.Setenv("output.0.port", "invalid")
+			},
+			expected: []OutputTarget{
+				{
+					Path: "ftp://server",
+					Type: "ftp",
+					Port: 0, // Invalid port should result in 0
+				},
+			},
+			description: "Should ignore invalid port values",
+		},
+		{
+			name: "gap in indices stops loading",
+			setupEnv: func() {
+				os.Setenv("output.0.path", "s3://bucket1")
+				os.Setenv("output.0.type", "s3")
+				// Skip output.1.*
+				os.Setenv("output.2.path", "s3://bucket2")
+				os.Setenv("output.2.type", "s3")
+			},
+			expected: []OutputTarget{
+				{
+					Path: "s3://bucket1",
+					Type: "s3",
+				},
+			},
+			description: "Should stop at first gap in indices",
+		},
+		{
+			name: "missing path stops loading",
+			setupEnv: func() {
+				os.Setenv("output.0.type", "s3")
+				// Path is missing
+			},
+			expected:    []OutputTarget{},
+			description: "Should not load target without path",
+		},
+		{
+			name: "missing type stops loading",
+			setupEnv: func() {
+				os.Setenv("output.0.path", "s3://bucket")
+				// Type is missing
+			},
+			expected:    []OutputTarget{},
+			description: "Should not load target without type",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Clear environment
+			clearOutputYAMLEnv()
+
+			// Setup test environment
+			tt.setupEnv()
+
+			cfg := &EnvConfig{}
+			cfg.loadOutputFromYAMLEnv()
+
+			// Check length
+			if len(cfg.Output) != len(tt.expected) {
+				t.Errorf("Expected %d output targets, got %d", len(tt.expected), len(cfg.Output))
+				return
+			}
+
+			// Check each target
+			for i, expected := range tt.expected {
+				if i >= len(cfg.Output) {
+					t.Errorf("Missing output target at index %d", i)
+					continue
+				}
+
+				actual := cfg.Output[i]
+
+				if actual.Path != expected.Path {
+					t.Errorf("Target %d Path: expected %q, got %q", i, expected.Path, actual.Path)
+				}
+				if actual.Type != expected.Type {
+					t.Errorf("Target %d Type: expected %q, got %q", i, expected.Type, actual.Type)
+				}
+				if actual.Endpoint != expected.Endpoint {
+					t.Errorf("Target %d Endpoint: expected %q, got %q", i, expected.Endpoint, actual.Endpoint)
+				}
+				if actual.AccessKey != expected.AccessKey {
+					t.Errorf("Target %d AccessKey: expected %q, got %q", i, expected.AccessKey, actual.AccessKey)
+				}
+				if actual.SecretKey != expected.SecretKey {
+					t.Errorf("Target %d SecretKey: expected %q, got %q", i, expected.SecretKey, actual.SecretKey)
+				}
+				if actual.Region != expected.Region {
+					t.Errorf("Target %d Region: expected %q, got %q", i, expected.Region, actual.Region)
+				}
+				if actual.Host != expected.Host {
+					t.Errorf("Target %d Host: expected %q, got %q", i, expected.Host, actual.Host)
+				}
+				if actual.Username != expected.Username {
+					t.Errorf("Target %d Username: expected %q, got %q", i, expected.Username, actual.Username)
+				}
+				if actual.Password != expected.Password {
+					t.Errorf("Target %d Password: expected %q, got %q", i, expected.Password, actual.Password)
+				}
+				if actual.Port != expected.Port {
+					t.Errorf("Target %d Port: expected %d, got %d", i, expected.Port, actual.Port)
+				}
+
+				// Check SSL pointer
+				if expected.SSL == nil && actual.SSL != nil {
+					t.Errorf("Target %d SSL: expected nil, got %v", i, *actual.SSL)
+				} else if expected.SSL != nil && actual.SSL == nil {
+					t.Errorf("Target %d SSL: expected %v, got nil", i, *expected.SSL)
+				} else if expected.SSL != nil && actual.SSL != nil && *expected.SSL != *actual.SSL {
+					t.Errorf("Target %d SSL: expected %v, got %v", i, *expected.SSL, *actual.SSL)
+				}
+			}
+
+			// Clean up
+			clearOutputYAMLEnv()
+		})
+	}
+}
+
+func clearOutputYAMLEnv() {
+	// Clear up to 10 potential output targets
+	for i := 0; i < 10; i++ {
+		keys := []string{
+			fmt.Sprintf("output.%d.path", i),
+			fmt.Sprintf("output.%d.type", i),
+			fmt.Sprintf("output.%d.endpoint", i),
+			fmt.Sprintf("output.%d.access_key", i),
+			fmt.Sprintf("output.%d.secret_key", i),
+			fmt.Sprintf("output.%d.ssl", i),
+			fmt.Sprintf("output.%d.region", i),
+			fmt.Sprintf("output.%d.host", i),
+			fmt.Sprintf("output.%d.username", i),
+			fmt.Sprintf("output.%d.password", i),
+			fmt.Sprintf("output.%d.port", i),
+		}
+
+		for _, key := range keys {
+			os.Unsetenv(key)
+		}
 	}
 }

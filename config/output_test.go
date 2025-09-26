@@ -216,6 +216,125 @@ func TestOutputTarget_GetFTPConfig(t *testing.T) {
 				Port:     22, // Default SFTP port
 			},
 		},
+		{
+			name: "FTP config with URL parsing - host extracted from path",
+			target: OutputTarget{
+				Path:     "ftp://server.example.com/remote/path",
+				Type:     "ftp",
+				Host:     "", // Empty host, should be extracted from Path
+				Username: "testuser",
+				Password: "testpass",
+				Port:     0,
+			},
+			expected: FTPConfig{
+				Host:     "server.example.com:21", // Host with default port added
+				Username: "testuser",
+				Password: "testpass",
+				Port:     21,
+			},
+		},
+		{
+			name: "SFTP config with URL parsing - host extracted from path",
+			target: OutputTarget{
+				Path:     "sftp://sftp.example.com/upload/dir",
+				Type:     "sftp",
+				Host:     "", // Empty host, should be extracted from Path
+				Username: "sftpuser",
+				Password: "sftppass",
+				Port:     0,
+			},
+			expected: FTPConfig{
+				Host:     "sftp.example.com:22", // Host with default port added
+				Username: "sftpuser",
+				Password: "sftppass",
+				Port:     22,
+			},
+		},
+		{
+			name: "FTP config with URL parsing - host with custom port in URL",
+			target: OutputTarget{
+				Path:     "ftp://ftp.custom.com:2121/data",
+				Type:     "ftp",
+				Host:     "", // Empty host, should be extracted from Path
+				Username: "customuser",
+				Password: "custompass",
+				Port:     0,
+			},
+			expected: FTPConfig{
+				Host:     "ftp.custom.com:2121", // Host with port from URL
+				Username: "customuser",
+				Password: "custompass",
+				Port:     21, // Default port since Port=0
+			},
+		},
+		{
+			name: "SFTP config with URL parsing - host with custom port in URL",
+			target: OutputTarget{
+				Path:     "sftp://sftp.custom.com:2222/secure",
+				Type:     "sftp",
+				Host:     "", // Empty host, should be extracted from Path
+				Username: "secureuser",
+				Password: "securepass",
+				Port:     0,
+			},
+			expected: FTPConfig{
+				Host:     "sftp.custom.com:2222", // Host with port from URL
+				Username: "secureuser",
+				Password: "securepass",
+				Port:     22, // Default port since Port=0
+			},
+		},
+		{
+			name: "config with invalid URL parsing - fallback behavior",
+			target: OutputTarget{
+				Path:     "://invalid-url",
+				Type:     "ftp",
+				Host:     "", // Empty host, URL parsing should fail
+				Username: "failuser",
+				Password: "failpass",
+				Port:     0,
+			},
+			expected: FTPConfig{
+				Host:     "", // Should remain empty since URL parsing fails
+				Username: "failuser",
+				Password: "failpass",
+				Port:     21, // Default FTP port
+			},
+		},
+		{
+			name: "config with empty URL host - no extraction",
+			target: OutputTarget{
+				Path:     "ftp:///just/path",
+				Type:     "ftp",
+				Host:     "", // Empty host, URL has no host part
+				Username: "nohost",
+				Password: "pass",
+				Port:     0,
+			},
+			expected: FTPConfig{
+				Host:     "", // Should remain empty since URL has no host
+				Username: "nohost",
+				Password: "pass",
+				Port:     21, // Default FTP port
+			},
+		},
+		{
+			name: "non-FTP/SFTP type - no URL parsing",
+			target: OutputTarget{
+				Path:     "s3://bucket.s3.amazonaws.com/path",
+				Type:     "s3", // Not FTP/SFTP, should not trigger URL parsing
+				Host:     "",
+				Username: "s3user",
+				Password: "s3pass",
+				Port:     0,
+			},
+			expected: FTPConfig{
+				Host:     "", // Should remain empty since type is not ftp/sftp
+				Username: "s3user",
+				Password: "s3pass",
+				Port:     21, // Default FTP port
+			},
+		},
 	}
 
 	for _, tt := range tests {
