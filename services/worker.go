@@ -4,6 +4,7 @@ import (
 	"file-shifter/config"
 	"log/slog"
 	"os"
+	"time"
 )
 
 type Worker struct {
@@ -15,7 +16,7 @@ type Worker struct {
 	FileWatcher     *FileWatcher
 }
 
-func NewWorker(dir string, targets []config.OutputTarget) *Worker {
+func NewWorker(dir string, targets []config.OutputTarget, cfg *config.EnvConfig) *Worker {
 
 	w := &Worker{
 		stopChan:        make(chan bool),
@@ -79,8 +80,12 @@ func NewWorker(dir string, targets []config.OutputTarget) *Worker {
 	// FileHandler initialisieren
 	w.FileHandler = NewFileHandler(targets, w.S3ClientManager)
 
-	// FileWatcher initialisieren
-	fileWatcher, err := NewFileWatcher(dir, w.FileHandler)
+	// FileWatcher initialisieren mit Konfiguration
+	maxRetries := cfg.FileStability.MaxRetries
+	checkInterval := time.Duration(cfg.FileStability.CheckInterval) * time.Second
+	stabilityPeriod := time.Duration(cfg.FileStability.StabilityPeriod) * time.Second
+
+	fileWatcher, err := NewFileWatcher(dir, w.FileHandler, maxRetries, checkInterval, stabilityPeriod)
 	if err != nil {
 		slog.Error("Fehler beim Initialisieren des File-Watchers", "err", err)
 		os.Exit(1)
