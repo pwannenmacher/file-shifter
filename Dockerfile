@@ -25,6 +25,8 @@ WORKDIR /root/
 COPY --from=builder /app/main .
 
 # Volumes für Input/Output-Verzeichnisse
+RUN mkdir -p /app/input /app/output
+RUN chmod -R 755 /app/input /app/output
 VOLUME ["/app/input"]
 VOLUME ["/app/output"]
 
