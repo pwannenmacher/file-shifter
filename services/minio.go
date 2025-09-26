@@ -107,3 +107,15 @@ func (m *MinIO) HealthCheck() error {
 	}
 	return err
 }
+
+func (m *MinIO) DeleteFile(bucketName, objectKey string) error {
+	ctx := context.Background()
+	err := m.MinIOClient.RemoveObject(ctx, bucketName, objectKey, minio.RemoveObjectOptions{})
+	if err != nil {
+		slog.Warn("Fehler beim Löschen der Datei", "bucket", bucketName, "key", objectKey, "err", err)
+		return err
+	}
+
+	slog.Info("Datei erfolgreich gelöscht", "bucket", bucketName, "key", objectKey)
+	return nil
+}
