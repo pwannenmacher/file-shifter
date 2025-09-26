@@ -286,55 +286,12 @@ func (fw *FileWatcher) isFileOpenByOtherProcess(filePath string) bool {
 		return false // lsof gibt es nicht unter Windows
 	}
 
-	// lsof Kommando ausführen
-	cmd := exec.Command("lsof", filePath)
-	output, err := cmd.Output()
-
+	output, err := fw.executeLsof(filePath)
 	if err != nil {
-		// lsof exit code 1 bedeutet "keine offenen Files gefunden" - das ist gut
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			if exitErr.ExitCode() == 1 {
-				return false // Keine Prozesse haben die Datei offen
-			}
-		}
-		// Anderer Fehler (lsof nicht installiert, etc.) - als "nicht geöffnet" behandeln
-		slog.Debug("lsof-Fehler ignoriert", "datei", filePath, "fehler", err)
 		return false
 	}
 
-	// Output parsen
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	if len(lines) <= 1 {
-		return false // Nur Header oder leer
-	}
-
-	// Prüfen ob relevante Prozesse die Datei offen haben
-	for i, line := range lines {
-		if i == 0 {
-			continue // Header überspringen
-		}
-
-		fields := strings.Fields(line)
-		if len(fields) >= 2 {
-			processName := fields[0]
-			pid := fields[1]
-
-			// Eigenen Prozess ignorieren
-			if pid == strconv.Itoa(os.Getpid()) {
-				continue
-			}
-
-			// Bekannte harmlose Prozesse ignorieren (Spotlight, etc.)
-			if fw.isHarmlessProcess(processName) {
-				continue
-			}
-
-			slog.Debug("Aktiver Prozess erkannt", "datei", filePath, "prozess", processName, "pid", pid)
-			return true
-		}
-	}
-
-	return false
+	return fw.hasRelevantProcesses(filePath, output)
 }
 
 // isHarmlessProcess prüft ob ein Prozess als harmlos eingestuft werden kann
@@ -353,6 +310,67 @@ func (fw *FileWatcher) isHarmlessProcess(processName string) bool {
 		}
 	}
 	return false
+}
+
+// executeLsof führt lsof-Kommando aus und behandelt Fehler
+func (fw *FileWatcher) executeLsof(filePath string) (string, error) {
+	cmd := exec.Command("lsof", filePath)
+	output, err := cmd.Output()
+
+	if err != nil {
+		// lsof exit code 1 bedeutet "keine offenen Files gefunden" - das ist gut
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() == 1 {
+				return "", fmt.Errorf("no open files")
+			}
+		}
+		// Anderer Fehler (Berechtigung, etc.) - als Fehler behandeln
+		slog.Debug("lsof-Fehler ignoriert", "datei", filePath, "fehler", err)
+		return "", err
+	}
+
+	return string(output), nil
+}
+
+// hasRelevantProcesses prüft ob relevante Prozesse die Datei offen haben
+func (fw *FileWatcher) hasRelevantProcesses(filePath, lsofOutput string) bool {
+	lines := strings.Split(strings.TrimSpace(lsofOutput), "\n")
+	if len(lines) <= 1 {
+		return false // Nur Header oder leer
+	}
+
+	// Header überspringen und Prozesse analysieren
+	for _, line := range lines[1:] {
+		if fw.isRelevantProcess(filePath, line) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isRelevantProcess prüft ob ein Prozess in der lsof-Zeile relevant ist
+func (fw *FileWatcher) isRelevantProcess(filePath, line string) bool {
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return false
+	}
+
+	processName := fields[0]
+	pid := fields[1]
+
+	// Eigenen Prozess ignorieren
+	if pid == strconv.Itoa(os.Getpid()) {
+		return false
+	}
+
+	// Bekannte harmlose Prozesse ignorieren
+	if fw.isHarmlessProcess(processName) {
+		return false
+	}
+
+	slog.Debug("Aktiver Prozess erkannt", "datei", filePath, "prozess", processName, "pid", pid)
+	return true
 }
 
 // checkLsofAvailable prüft ob lsof-Kommando verfügbar ist
