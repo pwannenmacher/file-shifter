@@ -32,9 +32,9 @@ func TestS3ClientManager_getClientKey(t *testing.T) {
 	manager := NewS3ClientManager()
 
 	tests := []struct {
-		name     string
-		config1  config.S3Config
-		config2  config.S3Config
+		name         string
+		config1      config.S3Config
+		config2      config.S3Config
 		shouldBeSame bool
 	}{
 		{
@@ -269,7 +269,7 @@ func TestS3ClientManager_GetOrCreateClient_InvalidConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client, err := manager.GetOrCreateClient(tt.config)
-			
+
 			// Should return an error for invalid configs
 			if err == nil {
 				t.Error("Expected error for invalid config")
@@ -277,7 +277,7 @@ func TestS3ClientManager_GetOrCreateClient_InvalidConfig(t *testing.T) {
 			if client != nil {
 				t.Error("Client should be nil when error occurs")
 			}
-			
+
 			// Should not add failed clients to the cache
 			if manager.GetActiveClientCount() != 0 {
 				t.Error("Failed client creation should not increase active client count")
@@ -313,7 +313,7 @@ func TestS3ClientManager_ConcurrentAccess(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func(id int) {
 			defer func() { done <- true }()
-			
+
 			var testConfig config.S3Config
 			if id%2 == 0 {
 				testConfig = config1
@@ -328,7 +328,7 @@ func TestS3ClientManager_ConcurrentAccess(t *testing.T) {
 					errors <- fmt.Errorf("goroutine %d: empty key generated", id)
 					return
 				}
-				
+
 				// Test GetActiveClientCount for thread safety
 				_ = manager.GetActiveClientCount()
 			}
