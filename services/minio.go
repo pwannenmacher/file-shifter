@@ -11,6 +11,10 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
+const (
+	ErrMinIOClientNotInitialized = "MinIO client is not initialized"
+)
+
 type MinIO struct {
 	MinIOClient *minio.Client
 }
@@ -30,7 +34,7 @@ func NewMinIOConnection(endpoint, accessKey, secretKey string, useSSL bool) (*Mi
 
 func (m *MinIO) EnsureBucket(bucketName string) error {
 	if m.MinIOClient == nil {
-		return errors.New("MinIO client is not initialized")
+		return errors.New(ErrMinIOClientNotInitialized)
 	}
 
 	ctx := context.Background()
@@ -53,7 +57,7 @@ func (m *MinIO) EnsureBucket(bucketName string) error {
 
 func (m *MinIO) UploadFile(filePath, bucketName, fileName string) (string, error) {
 	if m.MinIOClient == nil {
-		return "", errors.New("MinIO client is not initialized")
+		return "", errors.New(ErrMinIOClientNotInitialized)
 	}
 
 	ctx := context.Background()
@@ -85,7 +89,7 @@ func (m *MinIO) UploadFile(filePath, bucketName, fileName string) (string, error
 
 func (m *MinIO) ObjectExists(bucket, key string) (bool, error) {
 	if m.MinIOClient == nil {
-		return false, errors.New("MinIO client is not initialized")
+		return false, errors.New(ErrMinIOClientNotInitialized)
 	}
 
 	ctx := context.Background()
@@ -114,7 +118,7 @@ func (m *MinIO) SanitizeBucketName(name string) string {
 
 func (m *MinIO) HealthCheck() error {
 	if m.MinIOClient == nil {
-		return errors.New("MinIO client not initialized")
+		return errors.New(ErrMinIOClientNotInitialized)
 	}
 	_, err := m.MinIOClient.ListBuckets(context.Background())
 	return err
@@ -122,7 +126,7 @@ func (m *MinIO) HealthCheck() error {
 
 func (m *MinIO) DeleteFile(bucketName, objectKey string) error {
 	if m.MinIOClient == nil {
-		return errors.New("MinIO client not initialized")
+		return errors.New(ErrMinIOClientNotInitialized)
 	}
 	ctx := context.Background()
 	err := m.MinIOClient.RemoveObject(ctx, bucketName, objectKey, minio.RemoveObjectOptions{})
