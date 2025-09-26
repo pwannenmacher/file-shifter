@@ -1,6 +1,7 @@
 package services
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"log/slog"
@@ -29,8 +30,31 @@ func NewFileHandler(targets []config.OutputTarget, s3ClientManager *S3ClientMana
 	}
 }
 
+// calculateFileChecksum berechnet die SHA256-Prüfsumme einer Datei
+func (fh *FileHandler) calculateFileChecksum(filePath string) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("fehler beim Öffnen der Datei für Prüfsumme: %w", err)
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", fmt.Errorf("fehler beim Berechnen der Prüfsumme: %w", err)
+	}
+
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
 func (fh *FileHandler) ProcessFile(filePath, inputDir string) error {
 	slog.Info("Verarbeite Datei", "datei", filePath)
+
+	// Erste Prüfsumme berechnen (direkt nach dem Finden der Datei)
+	initialChecksum, err := fh.calculateFileChecksum(filePath)
+	if err != nil {
+		return fmt.Errorf("fehler beim Berechnen der initialen Prüfsumme: %w", err)
+	}
+	slog.Debug("Initiale Prüfsumme berechnet", "datei", filePath, "checksum", initialChecksum)
 
 	// Relative Pfad bestimmen
 	relPath, err := filepath.Rel(inputDir, filePath)
@@ -74,8 +98,35 @@ func (fh *FileHandler) ProcessFile(filePath, inputDir string) error {
 		}
 	}
 
-	// Wenn alle Transfers erfolgreich waren, Originaldatei löschen
+	// Wenn alle Transfers erfolgreich waren, finale Prüfsumme berechnen
 	if len(transferErrors) == 0 {
+		// Finale Prüfsumme berechnen (direkt vor dem Löschen)
+		finalChecksum, err := fh.calculateFileChecksum(filePath)
+		if err != nil {
+			slog.Error("Fehler beim Berechnen der finalen Prüfsumme", "datei", filePath, "fehler", err)
+			// Bei Fehler beim Prüfsummen-Check: Zieldateien löschen
+			fh.cleanupTargetFiles(relPath)
+			return fmt.Errorf("fehler beim Berechnen der finalen Prüfsumme: %w", err)
+		}
+
+		// Prüfsummen vergleichen
+		if initialChecksum != finalChecksum {
+			slog.Warn("Prüfsummen stimmen nicht überein - Datei wurde während der Verarbeitung verändert",
+				"datei", filePath,
+				"initial_checksum", initialChecksum,
+				"final_checksum", finalChecksum)
+
+			// Zieldateien löschen
+			if err := fh.cleanupTargetFiles(relPath); err != nil {
+				slog.Error("Fehler beim Löschen der Zieldateien", "datei", relPath, "fehler", err)
+			}
+
+			// Verarbeitung neu starten
+			slog.Info("Starte Verarbeitung neu aufgrund von Prüfsummen-Mismatch", "datei", filePath)
+			return fh.ProcessFile(filePath, inputDir)
+		}
+
+		// Prüfsummen sind identisch - Originaldatei kann gelöscht werden
 		if err := os.Remove(filePath); err != nil {
 			slog.Error("Fehler beim Löschen der Originaldatei", "datei", filePath, "fehler", err)
 			return fmt.Errorf("fehler beim Löschen der Originaldatei: %w", err)
@@ -330,5 +381,215 @@ func (fh *FileHandler) copyToFTPRegular(srcPath, remotePath, host string, target
 	}
 
 	slog.Info("Datei erfolgreich über FTP hochgeladen", "quelle", srcPath, "ziel", remotePath, "host", host)
+	return nil
+}
+
+// cleanupTargetFiles löscht bereits übertragene Dateien in allen konfigurierten Zielen
+func (fh *FileHandler) cleanupTargetFiles(relPath string) error {
+	slog.Info("Lösche bereits übertragene Dateien", "datei", relPath)
+	var cleanupErrors []error
+
+	for _, target := range fh.OutputTargets {
+		switch target.Type {
+		case "filesystem":
+			if err := fh.deleteFromFilesystem(relPath, target.Path); err != nil {
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("filesystem-löschung fehlgeschlagen: %w", err))
+				slog.Error("Filesystem-Löschung fehlgeschlagen", "ziel", target.Path, "fehler", err)
+			}
+		case "s3":
+			if err := fh.deleteFromS3(relPath, target); err != nil {
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("s3-löschung fehlgeschlagen: %w", err))
+				slog.Error("S3-Löschung fehlgeschlagen", "ziel", target.Path, "fehler", err)
+			}
+		case "ftp":
+			if err := fh.deleteFromFTP(relPath, target); err != nil {
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("ftp-löschung fehlgeschlagen: %w", err))
+				slog.Error("FTP-Löschung fehlgeschlagen", "ziel", target.Path, "fehler", err)
+			}
+		case "sftp":
+			if err := fh.deleteFromSFTP(relPath, target); err != nil {
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("sftp-löschung fehlgeschlagen: %w", err))
+				slog.Error("SFTP-Löschung fehlgeschlagen", "ziel", target.Path, "fehler", err)
+			}
+		}
+	}
+
+	if len(cleanupErrors) > 0 {
+		return fmt.Errorf("cleanup-fehler: %v", cleanupErrors)
+	}
+
+	slog.Info("Alle Zieldateien erfolgreich gelöscht", "datei", relPath)
+	return nil
+}
+
+// deleteFromFilesystem löscht eine Datei vom Filesystem
+func (fh *FileHandler) deleteFromFilesystem(relPath, targetBasePath string) error {
+	targetPath := filepath.Join(targetBasePath, relPath)
+
+	if err := os.Remove(targetPath); err != nil {
+		if os.IsNotExist(err) {
+			slog.Debug("Datei existiert nicht im Filesystem-Ziel", "pfad", targetPath)
+			return nil // Datei existiert nicht - kein Fehler
+		}
+		return fmt.Errorf("fehler beim Löschen der Filesystem-Datei: %w", err)
+	}
+
+	slog.Debug("Datei erfolgreich vom Filesystem gelöscht", "pfad", targetPath)
+	return nil
+}
+
+// deleteFromS3 löscht eine Datei von S3
+func (fh *FileHandler) deleteFromS3(relPath string, target config.OutputTarget) error {
+	if fh.S3ClientManager == nil {
+		return fmt.Errorf("s3ClientManager nicht initialisiert")
+	}
+
+	// S3-Konfiguration aus dem Target extrahieren
+	s3Config := target.GetS3Config()
+
+	// Den entsprechenden MinIO-Client für diese Konfiguration holen
+	minioClient, err := fh.S3ClientManager.GetOrCreateClient(s3Config)
+	if err != nil {
+		return fmt.Errorf("fehler beim Abrufen des S3-Clients: %w", err)
+	}
+
+	// S3-Pfad parsen (s3://bucket/prefix)
+	u, err := url.Parse(target.Path)
+	if err != nil {
+		return fmt.Errorf("ungültiger S3-Pfad: %w", err)
+	}
+
+	bucketName := u.Host
+	prefix := strings.TrimPrefix(u.Path, "/")
+
+	// Bucket-Name sanitarisieren
+	bucketName = minioClient.SanitizeBucketName(bucketName)
+
+	// S3-Objekt-Key erstellen
+	objectKey := relPath
+	if prefix != "" {
+		objectKey = filepath.Join(prefix, relPath)
+	}
+	// Für S3 immer Unix-Style Pfade verwenden
+	objectKey = strings.ReplaceAll(objectKey, "\\", "/")
+
+	// Datei löschen
+	if err := minioClient.DeleteFile(bucketName, objectKey); err != nil {
+		return fmt.Errorf("fehler beim S3-Löschen: %w", err)
+	}
+
+	slog.Debug("Datei erfolgreich von S3 gelöscht",
+		"bucket", bucketName,
+		"key", objectKey,
+		"endpoint", s3Config.Endpoint)
+	return nil
+}
+
+// deleteFromFTP löscht eine Datei vom FTP-Server
+func (fh *FileHandler) deleteFromFTP(relPath string, target config.OutputTarget) error {
+	// FTP-Pfad parsen (ftp://server/path)
+	u, err := url.Parse(target.Path)
+	if err != nil {
+		return fmt.Errorf("ungültiger FTP-Pfad: %w", err)
+	}
+
+	host := u.Host
+	remotePath := strings.TrimPrefix(u.Path, "/")
+	if remotePath != "" {
+		remotePath = filepath.Join(remotePath, relPath)
+	} else {
+		remotePath = relPath
+	}
+
+	// Standard-Port setzen falls nicht angegeben
+	if !strings.Contains(host, ":") {
+		host += ":21"
+	}
+
+	// FTP-Verbindung aufbauen
+	client, err := ftp.Dial(host, ftp.DialWithTimeout(30*time.Second))
+	if err != nil {
+		return fmt.Errorf("FTP-Verbindung fehlgeschlagen: %w", err)
+	}
+	defer client.Quit()
+
+	// Anmelden
+	ftpConfig := target.GetFTPConfig()
+	if err := client.Login(ftpConfig.Username, ftpConfig.Password); err != nil {
+		return fmt.Errorf("FTP-Anmeldung fehlgeschlagen: %w", err)
+	}
+
+	// Unix-Style Pfad für FTP verwenden
+	remotePath = strings.ReplaceAll(remotePath, "\\", "/")
+
+	// Datei löschen
+	if err := client.Delete(remotePath); err != nil {
+		// Prüfen ob Datei existiert (550 ist der Standard-Code für "Datei nicht gefunden")
+		if strings.Contains(err.Error(), "550") {
+			slog.Debug("Datei existiert nicht im FTP-Ziel", "pfad", remotePath)
+			return nil // Datei existiert nicht - kein Fehler
+		}
+		return fmt.Errorf("fehler beim FTP-Löschen: %w", err)
+	}
+
+	slog.Debug("Datei erfolgreich vom FTP-Server gelöscht", "pfad", remotePath, "host", host)
+	return nil
+}
+
+// deleteFromSFTP löscht eine Datei vom SFTP-Server
+func (fh *FileHandler) deleteFromSFTP(relPath string, target config.OutputTarget) error {
+	// SFTP-Pfad parsen (sftp://server/path)
+	u, err := url.Parse(target.Path)
+	if err != nil {
+		return fmt.Errorf("ungültiger SFTP-Pfad: %w", err)
+	}
+
+	host := u.Host
+	remotePath := strings.TrimPrefix(u.Path, "/")
+	if remotePath != "" {
+		remotePath = filepath.Join(remotePath, relPath)
+	} else {
+		remotePath = relPath
+	}
+
+	// Standard-Port setzen falls nicht angegeben
+	if !strings.Contains(host, ":") {
+		host += ":22"
+	}
+
+	// SSH-Verbindung aufbauen
+	ftpConfig := target.GetFTPConfig()
+	config := &ssh.ClientConfig{
+		User: ftpConfig.Username,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(ftpConfig.Password),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         30 * time.Second,
+	}
+
+	conn, err := ssh.Dial("tcp", host, config)
+	if err != nil {
+		return fmt.Errorf("SSH-Verbindung fehlgeschlagen: %w", err)
+	}
+	defer conn.Close()
+
+	// SFTP-Client erstellen
+	client, err := sftp.NewClient(conn)
+	if err != nil {
+		return fmt.Errorf("SFTP-Client-Erstellung fehlgeschlagen: %w", err)
+	}
+	defer client.Close()
+
+	// Datei löschen
+	if err := client.Remove(remotePath); err != nil {
+		if os.IsNotExist(err) {
+			slog.Debug("Datei existiert nicht im SFTP-Ziel", "pfad", remotePath)
+			return nil // Datei existiert nicht - kein Fehler
+		}
+		return fmt.Errorf("fehler beim SFTP-Löschen: %w", err)
+	}
+
+	slog.Debug("Datei erfolgreich vom SFTP-Server gelöscht", "pfad", remotePath)
 	return nil
 }
