@@ -829,3 +829,347 @@ func BenchmarkNormalizeRemotePath(b *testing.B) {
 		}
 	}
 }
+
+// Zusätzliche Tests für bessere Coverage
+
+func TestFileHandler_copyToS3_MoreCoverage(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "s3_copy_test_*")
+	defer cleanup()
+
+	// Erstelle Testdatei
+	testFile := filepath.Join(tempDir, "test.txt")
+	testContent := "test content for S3"
+	err := os.WriteFile(testFile, []byte(testContent), 0644)
+	if err != nil {
+		t.Fatalf("Fehler beim Erstellen der Testdatei: %v", err)
+	}
+
+	s3Manager := NewS3ClientManager()
+	defer s3Manager.Close()
+
+	targets := []config.OutputTarget{
+		{
+			Type:      "s3",
+			Path:      "s3://test-bucket/path/",
+			AccessKey: "test-key",
+			SecretKey: "test-secret",
+			Endpoint:  "localhost:9000",
+		},
+	}
+
+	fh := NewFileHandler(targets, s3Manager)
+
+	tests := []struct {
+		name      string
+		target    config.OutputTarget
+		expectErr bool
+	}{
+		{
+			name: "S3 target with valid config",
+			target: config.OutputTarget{
+				Type:      "s3",
+				Path:      "s3://bucket/prefix/",
+				AccessKey: "key",
+				SecretKey: "secret",
+				Endpoint:  "localhost:9000",
+			},
+			expectErr: true, // Wird fehlschlagen da kein echter S3 Server
+		},
+		{
+			name: "S3 target with invalid path",
+			target: config.OutputTarget{
+				Type:      "s3",
+				Path:      "invalid-s3-path",
+				AccessKey: "key",
+				SecretKey: "secret",
+				Endpoint:  "localhost:9000",
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := fh.copyToS3(testFile, tempDir, tt.target)
+
+			if tt.expectErr && err == nil {
+				t.Error("Erwartete einen Fehler, aber bekam keinen")
+			}
+
+			if !tt.expectErr && err != nil {
+				t.Errorf("Unerwarteter Fehler: %v", err)
+			}
+		})
+	}
+}
+
+func TestFileHandler_deleteFromS3_Coverage(t *testing.T) {
+	s3Manager := NewS3ClientManager()
+	defer s3Manager.Close()
+
+	targets := []config.OutputTarget{
+		{
+			Type:      "s3",
+			Path:      "s3://test-bucket/path/",
+			AccessKey: "test-key",
+			SecretKey: "test-secret",
+			Endpoint:  "localhost:9000",
+		},
+	}
+
+	fh := NewFileHandler(targets, s3Manager)
+
+	tests := []struct {
+		name      string
+		target    config.OutputTarget
+		fileName  string
+		expectErr bool
+	}{
+		{
+			name: "Delete from S3 with valid config",
+			target: config.OutputTarget{
+				Type:      "s3",
+				Path:      "s3://bucket/prefix/",
+				AccessKey: "key",
+				SecretKey: "secret",
+				Endpoint:  "localhost:9000",
+			},
+			fileName:  "test.txt",
+			expectErr: true, // Wird fehlschlagen da kein echter S3 Server
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := fh.deleteFromS3(tt.fileName, tt.target)
+
+			if tt.expectErr && err == nil {
+				t.Error("Erwartete einen Fehler, aber bekam keinen")
+			}
+
+			if !tt.expectErr && err != nil {
+				t.Errorf("Unerwarteter Fehler: %v", err)
+			}
+		})
+	}
+}
+
+func TestFileHandler_deleteFromFTP_Coverage(t *testing.T) {
+	s3Manager := NewS3ClientManager()
+	defer s3Manager.Close()
+
+	targets := []config.OutputTarget{
+		{
+			Type:     "ftp",
+			Path:     "ftp://test.example.com/path/",
+			Username: "testuser",
+			Password: "testpass",
+		},
+	}
+
+	fh := NewFileHandler(targets, s3Manager)
+
+	tests := []struct {
+		name      string
+		target    config.OutputTarget
+		fileName  string
+		expectErr bool
+	}{
+		{
+			name: "Delete from FTP",
+			target: config.OutputTarget{
+				Type:     "ftp",
+				Path:     "ftp://localhost/path/",
+				Username: "user",
+				Password: "pass",
+			},
+			fileName:  "test.txt",
+			expectErr: true, // Wird fehlschlagen da kein FTP Server
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := fh.deleteFromFTP(tt.fileName, tt.target)
+
+			if tt.expectErr && err == nil {
+				t.Error("Erwartete einen Fehler, aber bekam keinen")
+			}
+
+			if !tt.expectErr && err != nil {
+				t.Errorf("Unerwarteter Fehler: %v", err)
+			}
+		})
+	}
+}
+
+func TestFileHandler_deleteFromSFTP_Coverage(t *testing.T) {
+	s3Manager := NewS3ClientManager()
+	defer s3Manager.Close()
+
+	targets := []config.OutputTarget{
+		{
+			Type:     "sftp",
+			Path:     "sftp://test.example.com/path/",
+			Username: "testuser",
+			Password: "testpass",
+		},
+	}
+
+	fh := NewFileHandler(targets, s3Manager)
+
+	tests := []struct {
+		name      string
+		target    config.OutputTarget
+		fileName  string
+		expectErr bool
+	}{
+		{
+			name: "Delete from SFTP",
+			target: config.OutputTarget{
+				Type:     "sftp",
+				Path:     "sftp://localhost/path/",
+				Username: "user",
+				Password: "pass",
+			},
+			fileName:  "test.txt",
+			expectErr: true, // Wird fehlschlagen da kein SFTP Server
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := fh.deleteFromSFTP(tt.fileName, tt.target)
+
+			if tt.expectErr && err == nil {
+				t.Error("Erwartete einen Fehler, aber bekam keinen")
+			}
+
+			if !tt.expectErr && err != nil {
+				t.Errorf("Unerwarteter Fehler: %v", err)
+			}
+		})
+	}
+}
+
+func TestFileHandler_copyToSFTPClient_Coverage(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "sftp_copy_test_*")
+	defer cleanup()
+
+	// Erstelle Testdatei
+	testFile := filepath.Join(tempDir, "test.txt")
+	testContent := "test content for SFTP"
+	err := os.WriteFile(testFile, []byte(testContent), 0644)
+	if err != nil {
+		t.Fatalf("Fehler beim Erstellen der Testdatei: %v", err)
+	}
+
+	s3Manager := NewS3ClientManager()
+	defer s3Manager.Close()
+
+	targets := []config.OutputTarget{{Type: "filesystem", Path: "/tmp"}}
+	fh := NewFileHandler(targets, s3Manager)
+
+	// Test mit ungültigen Parametern
+	target := config.OutputTarget{
+		Type:     "sftp",
+		Path:     "sftp://localhost/path/",
+		Username: "user",
+		Password: "pass",
+	}
+
+	err = fh.copyToSFTPClient(testFile, "/remote/path/test.txt", "localhost:22", target)
+	if err == nil {
+		t.Error("Erwartete einen Fehler bei SFTP Verbindung zu nicht existierendem Server")
+	}
+}
+
+func TestFileHandler_copyToFTPRegular_Coverage(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "ftp_copy_test_*")
+	defer cleanup()
+
+	// Erstelle Testdatei
+	testFile := filepath.Join(tempDir, "test.txt")
+	testContent := "test content for FTP"
+	err := os.WriteFile(testFile, []byte(testContent), 0644)
+	if err != nil {
+		t.Fatalf("Fehler beim Erstellen der Testdatei: %v", err)
+	}
+
+	s3Manager := NewS3ClientManager()
+	defer s3Manager.Close()
+
+	targets := []config.OutputTarget{{Type: "filesystem", Path: "/tmp"}}
+	fh := NewFileHandler(targets, s3Manager)
+
+	// Test mit ungültigen Parametern
+	target := config.OutputTarget{
+		Type:     "ftp",
+		Path:     "ftp://localhost/path/",
+		Username: "user",
+		Password: "pass",
+	}
+
+	err = fh.copyToFTPRegular(testFile, "/remote/path/test.txt", "localhost:21", target)
+	if err == nil {
+		t.Error("Erwartete einen Fehler bei FTP Verbindung zu nicht existierendem Server")
+	}
+}
+
+func TestFileHandler_ProcessFile_MultipleTargets(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "process_multi_test_*")
+	defer cleanup()
+
+	// Erstelle Input- und Output-Verzeichnisse
+	inputDir := filepath.Join(tempDir, "input")
+	outputDir1 := filepath.Join(tempDir, "output1")
+	outputDir2 := filepath.Join(tempDir, "output2")
+
+	for _, dir := range []string{inputDir, outputDir1, outputDir2} {
+		err := os.MkdirAll(dir, 0755)
+		if err != nil {
+			t.Fatalf("Fehler beim Erstellen des Verzeichnisses %s: %v", dir, err)
+		}
+	}
+
+	// Erstelle Testdatei
+	testFile := filepath.Join(inputDir, "test.txt")
+	testContent := "test content for multiple targets"
+	err := os.WriteFile(testFile, []byte(testContent), 0644)
+	if err != nil {
+		t.Fatalf("Fehler beim Erstellen der Testdatei: %v", err)
+	}
+
+	s3Manager := NewS3ClientManager()
+	defer s3Manager.Close()
+
+	// Mehrere Targets definieren
+	targets := []config.OutputTarget{
+		{Type: "filesystem", Path: outputDir1},
+		{Type: "filesystem", Path: outputDir2},
+	}
+
+	fh := NewFileHandler(targets, s3Manager)
+
+	// Verarbeite die Datei
+	err = fh.ProcessFile(testFile, inputDir)
+	if err != nil {
+		t.Errorf("ProcessFile sollte nicht fehlschlagen: %v", err)
+	}
+
+	// Überprüfe ob Datei in beide Zielverzeichnisse kopiert wurde
+	for i, target := range targets {
+		expectedPath := filepath.Join(target.Path, "test.txt")
+		if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
+			t.Errorf("Datei sollte in Target %d vorhanden sein: %s", i+1, expectedPath)
+		} else {
+			// Überprüfe Inhalt
+			content, err := os.ReadFile(expectedPath)
+			if err != nil {
+				t.Errorf("Fehler beim Lesen der kopierten Datei: %v", err)
+			} else if string(content) != testContent {
+				t.Errorf("Dateiinhalt stimmt nicht überein in Target %d", i+1)
+			}
+		}
+	}
+}

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,10 @@ func NewMinIOConnection(endpoint, accessKey, secretKey string, useSSL bool) (*Mi
 }
 
 func (m *MinIO) EnsureBucket(bucketName string) error {
+	if m.MinIOClient == nil {
+		return errors.New("MinIO client is not initialized")
+	}
+
 	ctx := context.Background()
 
 	exists, err := m.MinIOClient.BucketExists(ctx, bucketName)
@@ -47,6 +52,10 @@ func (m *MinIO) EnsureBucket(bucketName string) error {
 }
 
 func (m *MinIO) UploadFile(filePath, bucketName, fileName string) (string, error) {
+	if m.MinIOClient == nil {
+		return "", errors.New("MinIO client is not initialized")
+	}
+
 	ctx := context.Background()
 
 	// Bestimme Content-Type basierend auf Dateierweiterung
@@ -75,6 +84,10 @@ func (m *MinIO) UploadFile(filePath, bucketName, fileName string) (string, error
 }
 
 func (m *MinIO) ObjectExists(bucket, key string) (bool, error) {
+	if m.MinIOClient == nil {
+		return false, errors.New("MinIO client is not initialized")
+	}
+
 	ctx := context.Background()
 	_, err := m.MinIOClient.StatObject(ctx, bucket, key, minio.StatObjectOptions{})
 	if err == nil {
@@ -100,15 +113,17 @@ func (m *MinIO) SanitizeBucketName(name string) string {
 }
 
 func (m *MinIO) HealthCheck() error {
-	ctx := context.Background()
-	_, err := m.MinIOClient.ListBuckets(ctx)
-	if err != nil {
-		slog.Error("MinIO HealthCheck fehlgeschlagen", "err", err)
+	if m.MinIOClient == nil {
+		return errors.New("MinIO client not initialized")
 	}
+	_, err := m.MinIOClient.ListBuckets(context.Background())
 	return err
 }
 
 func (m *MinIO) DeleteFile(bucketName, objectKey string) error {
+	if m.MinIOClient == nil {
+		return errors.New("MinIO client not initialized")
+	}
 	ctx := context.Background()
 	err := m.MinIOClient.RemoveObject(ctx, bucketName, objectKey, minio.RemoveObjectOptions{})
 	if err != nil {

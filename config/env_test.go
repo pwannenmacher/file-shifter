@@ -518,4 +518,341 @@ func clearTestEnvironment() {
 			}
 		}
 	}
+
+	// Clear FILE_STABILITY_* pattern keys
+	for _, env := range os.Environ() {
+		if strings.HasPrefix(env, "FILE_STABILITY_") {
+			parts := strings.SplitN(env, "=", 2)
+			if len(parts) >= 1 {
+				os.Unsetenv(parts[0])
+			}
+		}
+	}
+}
+
+func TestEnvConfig_LoadFileStabilityFromEnv(t *testing.T) {
+	// Clean environment before tests
+	clearFileStabilityEnv()
+	defer clearFileStabilityEnv()
+
+	tests := []struct {
+		name     string
+		setupEnv func()
+		expected struct {
+			MaxRetries      int
+			CheckInterval   int
+			StabilityPeriod int
+		}
+		description string
+	}{
+		{
+			name: "all file stability values set",
+			setupEnv: func() {
+				os.Setenv("FILE_STABILITY_MAX_RETRIES", "50")
+				os.Setenv("FILE_STABILITY_CHECK_INTERVAL", "2")
+				os.Setenv("FILE_STABILITY_PERIOD", "3")
+			},
+			expected: struct {
+				MaxRetries      int
+				CheckInterval   int
+				StabilityPeriod int
+			}{
+				MaxRetries:      50,
+				CheckInterval:   2,
+				StabilityPeriod: 3,
+			},
+			description: "Should load all file stability values from environment",
+		},
+		{
+			name: "partial file stability values set",
+			setupEnv: func() {
+				os.Setenv("FILE_STABILITY_MAX_RETRIES", "25")
+				// Andere Werte nicht setzen
+			},
+			expected: struct {
+				MaxRetries      int
+				CheckInterval   int
+				StabilityPeriod int
+			}{
+				MaxRetries:      25,
+				CheckInterval:   0, // Default bleibt
+				StabilityPeriod: 0, // Default bleibt
+			},
+			description: "Should load only set values, others remain default",
+		},
+		{
+			name: "invalid values ignored",
+			setupEnv: func() {
+				os.Setenv("FILE_STABILITY_MAX_RETRIES", "invalid")
+				os.Setenv("FILE_STABILITY_CHECK_INTERVAL", "-1")
+				os.Setenv("FILE_STABILITY_PERIOD", "0")
+			},
+			expected: struct {
+				MaxRetries      int
+				CheckInterval   int
+				StabilityPeriod int
+			}{
+				MaxRetries:      0, // Invalid ignored
+				CheckInterval:   0, // Negative ignored
+				StabilityPeriod: 0, // Zero ignored
+			},
+			description: "Should ignore invalid values",
+		},
+		{
+			name: "empty environment",
+			setupEnv: func() {
+				// Keine Umgebungsvariablen setzen
+			},
+			expected: struct {
+				MaxRetries      int
+				CheckInterval   int
+				StabilityPeriod int
+			}{
+				MaxRetries:      0,
+				CheckInterval:   0,
+				StabilityPeriod: 0,
+			},
+			description: "Should have zero values with empty environment",
+		},
+		{
+			name: "boundary values",
+			setupEnv: func() {
+				os.Setenv("FILE_STABILITY_MAX_RETRIES", "1")
+				os.Setenv("FILE_STABILITY_CHECK_INTERVAL", "1")
+				os.Setenv("FILE_STABILITY_PERIOD", "1")
+			},
+			expected: struct {
+				MaxRetries      int
+				CheckInterval   int
+				StabilityPeriod int
+			}{
+				MaxRetries:      1,
+				CheckInterval:   1,
+				StabilityPeriod: 1,
+			},
+			description: "Should handle boundary values correctly",
+		},
+		{
+			name: "large valid values",
+			setupEnv: func() {
+				os.Setenv("FILE_STABILITY_MAX_RETRIES", "9999")
+				os.Setenv("FILE_STABILITY_CHECK_INTERVAL", "300")
+				os.Setenv("FILE_STABILITY_PERIOD", "600")
+			},
+			expected: struct {
+				MaxRetries      int
+				CheckInterval   int
+				StabilityPeriod int
+			}{
+				MaxRetries:      9999,
+				CheckInterval:   300,
+				StabilityPeriod: 600,
+			},
+			description: "Should handle large valid values",
+		},
+		{
+			name: "mixed valid and invalid values",
+			setupEnv: func() {
+				os.Setenv("FILE_STABILITY_MAX_RETRIES", "15")     // Valid
+				os.Setenv("FILE_STABILITY_CHECK_INTERVAL", "abc") // Invalid
+				os.Setenv("FILE_STABILITY_PERIOD", "5")           // Valid
+			},
+			expected: struct {
+				MaxRetries      int
+				CheckInterval   int
+				StabilityPeriod int
+			}{
+				MaxRetries:      15, // Valid value loaded
+				CheckInterval:   0,  // Invalid ignored
+				StabilityPeriod: 5,  // Valid value loaded
+			},
+			description: "Should load valid values and ignore invalid ones",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Clear environment before each test
+			clearFileStabilityEnv()
+
+			// Setup environment for this test
+			tt.setupEnv()
+
+			// Create config and load from environment
+			cfg := &EnvConfig{}
+			cfg.loadFileStabilityFromEnv()
+
+			// Verify results
+			if cfg.FileStability.MaxRetries != tt.expected.MaxRetries {
+				t.Errorf("MaxRetries mismatch. Expected: %d, Got: %d",
+					tt.expected.MaxRetries, cfg.FileStability.MaxRetries)
+			}
+
+			if cfg.FileStability.CheckInterval != tt.expected.CheckInterval {
+				t.Errorf("CheckInterval mismatch. Expected: %d, Got: %d",
+					tt.expected.CheckInterval, cfg.FileStability.CheckInterval)
+			}
+
+			if cfg.FileStability.StabilityPeriod != tt.expected.StabilityPeriod {
+				t.Errorf("StabilityPeriod mismatch. Expected: %d, Got: %d",
+					tt.expected.StabilityPeriod, cfg.FileStability.StabilityPeriod)
+			}
+		})
+	}
+}
+
+func TestEnvConfig_SetDefaults_FileStability(t *testing.T) {
+	tests := []struct {
+		name     string
+		initial  EnvConfig
+		expected struct {
+			MaxRetries      int
+			CheckInterval   int
+			StabilityPeriod int
+		}
+		description string
+	}{
+		{
+			name:    "empty config gets default file stability values",
+			initial: EnvConfig{},
+			expected: struct {
+				MaxRetries      int
+				CheckInterval   int
+				StabilityPeriod int
+			}{
+				MaxRetries:      30,
+				CheckInterval:   1,
+				StabilityPeriod: 1,
+			},
+			description: "Should set default file stability values",
+		},
+		{
+			name: "partial config preserves existing values",
+			initial: EnvConfig{
+				FileStability: struct {
+					MaxRetries      int `yaml:"max-retries"`
+					CheckInterval   int `yaml:"check-interval"`
+					StabilityPeriod int `yaml:"stability-period"`
+				}{
+					MaxRetries:      50,
+					CheckInterval:   0, // Will be defaulted
+					StabilityPeriod: 5,
+				},
+			},
+			expected: struct {
+				MaxRetries      int
+				CheckInterval   int
+				StabilityPeriod int
+			}{
+				MaxRetries:      50, // Preserved
+				CheckInterval:   1,  // Defaulted
+				StabilityPeriod: 5,  // Preserved
+			},
+			description: "Should preserve existing non-zero values and default zero ones",
+		},
+		{
+			name: "complete config preserves all values",
+			initial: EnvConfig{
+				FileStability: struct {
+					MaxRetries      int `yaml:"max-retries"`
+					CheckInterval   int `yaml:"check-interval"`
+					StabilityPeriod int `yaml:"stability-period"`
+				}{
+					MaxRetries:      100,
+					CheckInterval:   3,
+					StabilityPeriod: 10,
+				},
+			},
+			expected: struct {
+				MaxRetries      int
+				CheckInterval   int
+				StabilityPeriod int
+			}{
+				MaxRetries:      100, // Preserved
+				CheckInterval:   3,   // Preserved
+				StabilityPeriod: 10,  // Preserved
+			},
+			description: "Should preserve all existing non-zero values",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := tt.initial
+			cfg.SetDefaults()
+
+			if cfg.FileStability.MaxRetries != tt.expected.MaxRetries {
+				t.Errorf("MaxRetries mismatch. Expected: %d, Got: %d",
+					tt.expected.MaxRetries, cfg.FileStability.MaxRetries)
+			}
+
+			if cfg.FileStability.CheckInterval != tt.expected.CheckInterval {
+				t.Errorf("CheckInterval mismatch. Expected: %d, Got: %d",
+					tt.expected.CheckInterval, cfg.FileStability.CheckInterval)
+			}
+
+			if cfg.FileStability.StabilityPeriod != tt.expected.StabilityPeriod {
+				t.Errorf("StabilityPeriod mismatch. Expected: %d, Got: %d",
+					tt.expected.StabilityPeriod, cfg.FileStability.StabilityPeriod)
+			}
+		})
+	}
+}
+
+func TestEnvConfig_LoadFromEnvironment_WithFileStability(t *testing.T) {
+	// Clear environment
+	clearTestEnvironment()
+	clearFileStabilityEnv()
+	defer func() {
+		clearTestEnvironment()
+		clearFileStabilityEnv()
+	}()
+
+	// Setup environment
+	os.Setenv("INPUT", "/test/input")
+	os.Setenv("LOG_LEVEL", "DEBUG")
+	os.Setenv("FILE_STABILITY_MAX_RETRIES", "75")
+	os.Setenv("FILE_STABILITY_CHECK_INTERVAL", "3")
+	os.Setenv("FILE_STABILITY_PERIOD", "5")
+
+	cfg := &EnvConfig{}
+	err := cfg.LoadFromEnvironment()
+
+	if err != nil {
+		t.Fatalf("LoadFromEnvironment should not fail: %v", err)
+	}
+
+	// Verify basic config loaded
+	if cfg.Input != "/test/input" {
+		t.Errorf("Input mismatch. Expected: /test/input, Got: %s", cfg.Input)
+	}
+
+	if cfg.Log.Level != "DEBUG" {
+		t.Errorf("Log Level mismatch. Expected: DEBUG, Got: %s", cfg.Log.Level)
+	}
+
+	// Verify file stability config loaded
+	if cfg.FileStability.MaxRetries != 75 {
+		t.Errorf("MaxRetries mismatch. Expected: 75, Got: %d", cfg.FileStability.MaxRetries)
+	}
+
+	if cfg.FileStability.CheckInterval != 3 {
+		t.Errorf("CheckInterval mismatch. Expected: 3, Got: %d", cfg.FileStability.CheckInterval)
+	}
+
+	if cfg.FileStability.StabilityPeriod != 5 {
+		t.Errorf("StabilityPeriod mismatch. Expected: 5, Got: %d", cfg.FileStability.StabilityPeriod)
+	}
+}
+
+func clearFileStabilityEnv() {
+	fileStabilityKeys := []string{
+		"FILE_STABILITY_MAX_RETRIES",
+		"FILE_STABILITY_CHECK_INTERVAL",
+		"FILE_STABILITY_PERIOD",
+	}
+
+	for _, key := range fileStabilityKeys {
+		os.Unsetenv(key)
+	}
 }
