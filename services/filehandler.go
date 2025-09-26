@@ -30,6 +30,90 @@ func NewFileHandler(targets []config.OutputTarget, s3ClientManager *S3ClientMana
 	}
 }
 
+// normalizeRemotePath konvertiert Windows-Pfade zu Unix-Style für Remote-Übertragung
+func normalizeRemotePath(path string) string {
+	return strings.ReplaceAll(path, "\\", "/")
+}
+
+// parseRemotePath parsed FTP/SFTP URLs und gibt Host, remotePath und Standard-Port zurück
+func parseRemotePath(targetPath, relPath string, defaultPort string) (host, remotePath string, err error) {
+	u, err := url.Parse(targetPath)
+	if err != nil {
+		return "", "", fmt.Errorf("ungültiger Remote-Pfad: %w", err)
+	}
+
+	host = u.Host
+	remotePath = strings.TrimPrefix(u.Path, "/")
+	if remotePath != "" {
+		remotePath = filepath.Join(remotePath, relPath)
+	} else {
+		remotePath = relPath
+	}
+
+	// Standard-Port setzen falls nicht angegeben
+	if !strings.Contains(host, ":") {
+		host += ":" + defaultPort
+	}
+
+	return host, remotePath, nil
+}
+
+// createSSHConfig erstellt eine SSH-Konfiguration für SFTP
+func createSSHConfig(ftpConfig config.FTPConfig) *ssh.ClientConfig {
+	return &ssh.ClientConfig{
+		User: ftpConfig.Username,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(ftpConfig.Password),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         30 * time.Second,
+	}
+}
+
+// connectAndLoginFTP stellt FTP-Verbindung her und meldet sich an
+func connectAndLoginFTP(host string, ftpConfig config.FTPConfig) (*ftp.ServerConn, error) {
+	client, err := ftp.Dial(host, ftp.DialWithTimeout(30*time.Second))
+	if err != nil {
+		return nil, fmt.Errorf("FTP-Verbindung fehlgeschlagen: %w", err)
+	}
+
+	if err := client.Login(ftpConfig.Username, ftpConfig.Password); err != nil {
+		client.Quit()
+		return nil, fmt.Errorf("FTP-Anmeldung fehlgeschlagen: %w", err)
+	}
+
+	return client, nil
+}
+
+type s3PathInfo struct {
+	bucketName string
+	objectKey  string
+}
+
+// parseS3Path parsed S3-URLs und erstellt Object-Key
+func parseS3Path(targetPath, relPath string) (s3PathInfo, error) {
+	u, err := url.Parse(targetPath)
+	if err != nil {
+		return s3PathInfo{}, fmt.Errorf("ungültiger S3-Pfad: %w", err)
+	}
+
+	bucketName := u.Host
+	prefix := strings.TrimPrefix(u.Path, "/")
+
+	// S3-Objekt-Key erstellen
+	objectKey := relPath
+	if prefix != "" {
+		objectKey = filepath.Join(prefix, relPath)
+	}
+	// Für S3 immer Unix-Style Pfade verwenden
+	objectKey = normalizeRemotePath(objectKey)
+
+	return s3PathInfo{
+		bucketName: bucketName,
+		objectKey:  objectKey,
+	}, nil
+}
+
 // calculateFileChecksum berechnet die SHA256-Prüfsumme einer Datei
 func (fh *FileHandler) calculateFileChecksum(filePath string) (string, error) {
 	file, err := os.Open(filePath)
@@ -193,85 +277,46 @@ func (fh *FileHandler) copyToS3(srcPath, relPath string, target config.OutputTar
 		return fmt.Errorf("fehler beim Abrufen des S3-Clients: %w", err)
 	}
 
-	// S3-Pfad parsen (s3://bucket/prefix)
-	u, err := url.Parse(target.Path)
+	// S3-Pfad parsen
+	s3Path, err := parseS3Path(target.Path, relPath)
 	if err != nil {
-		return fmt.Errorf("ungültiger S3-Pfad: %w", err)
+		return fmt.Errorf("fehler beim Parsen des S3-Pfads: %w", err)
 	}
 
-	bucketName := u.Host
-	prefix := strings.TrimPrefix(u.Path, "/")
-
 	// Bucket-Name sanitarisieren
-	bucketName = minioClient.SanitizeBucketName(bucketName)
+	bucketName := minioClient.SanitizeBucketName(s3Path.bucketName)
 
 	// Bucket sicherstellen
 	if err := minioClient.EnsureBucket(bucketName); err != nil {
 		return fmt.Errorf("fehler beim Sicherstellen des Buckets: %w", err)
 	}
 
-	// S3-Objekt-Key erstellen
-	objectKey := relPath
-	if prefix != "" {
-		objectKey = filepath.Join(prefix, relPath)
-	}
-	// Für S3 immer Unix-Style Pfade verwenden
-	objectKey = strings.ReplaceAll(objectKey, "\\", "/")
-
 	// Datei hochladen
-	if _, err := minioClient.UploadFile(srcPath, bucketName, objectKey); err != nil {
+	if _, err := minioClient.UploadFile(srcPath, bucketName, s3Path.objectKey); err != nil {
 		return fmt.Errorf("fehler beim S3-Upload: %w", err)
 	}
 
 	slog.Info("Datei erfolgreich zu S3 hochgeladen",
 		"quelle", relPath,
 		"bucket", bucketName,
-		"key", objectKey,
+		"key", s3Path.objectKey,
 		"endpoint", s3Config.Endpoint)
 	return nil
 }
 
 func (fh *FileHandler) copyToFTP(srcPath, relPath string, target config.OutputTarget) error {
-	// FTP-Pfad parsen (ftp://server/path)
-	u, err := url.Parse(target.Path)
+	host, remotePath, err := parseRemotePath(target.Path, relPath, "21")
 	if err != nil {
-		return fmt.Errorf("ungültiger FTP-Pfad: %w", err)
-	}
-
-	host := u.Host
-	remotePath := strings.TrimPrefix(u.Path, "/")
-	if remotePath != "" {
-		remotePath = filepath.Join(remotePath, relPath)
-	} else {
-		remotePath = relPath
-	}
-
-	// Standard-Port setzen falls nicht angegeben
-	if !strings.Contains(host, ":") {
-		host += ":21"
+		return fmt.Errorf("fehler beim Parsen des FTP-Pfads: %w", err)
 	}
 
 	return fh.copyToFTPRegular(srcPath, remotePath, host, target)
 }
 
 func (fh *FileHandler) copyToSFTP(srcPath, relPath string, target config.OutputTarget) error {
-	// SFTP-Pfad parsen (sftp://server/path)
-	u, err := url.Parse(target.Path)
+	host, remotePath, err := parseRemotePath(target.Path, relPath, "22")
 	if err != nil {
-		return fmt.Errorf("ungültiger SFTP-Pfad: %w", err)
-	}
-
-	host := u.Host
-	remotePath := strings.TrimPrefix(u.Path, "/")
-	if remotePath != "" {
-		remotePath = filepath.Join(remotePath, relPath)
-	} else {
-		remotePath = relPath
-	}
-
-	// Standard-Port setzen falls nicht angegeben
-	if !strings.Contains(host, ":") {
-		host += ":22"
+		return fmt.Errorf("fehler beim Parsen des SFTP-Pfads: %w", err)
 	}
 
 	return fh.copyToSFTPClient(srcPath, remotePath, host, target)
@@ -280,14 +325,7 @@ func (fh *FileHandler) copyToSFTP(srcPath, relPath string, target config.OutputT
 func (fh *FileHandler) copyToSFTPClient(srcPath, remotePath, host string, target config.OutputTarget) error {
 	// SSH-Verbindung aufbauen
 	ftpConfig := target.GetFTPConfig()
-	config := &ssh.ClientConfig{
-		User: ftpConfig.Username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(ftpConfig.Password),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // In Produktion sollte hier eine ordentliche Verifikation stehen
-		Timeout:         30 * time.Second,
-	}
+	config := createSSHConfig(ftpConfig)
 
 	conn, err := ssh.Dial("tcp", host, config)
 	if err != nil {
@@ -332,18 +370,13 @@ func (fh *FileHandler) copyToSFTPClient(srcPath, remotePath, host string, target
 }
 
 func (fh *FileHandler) copyToFTPRegular(srcPath, remotePath, host string, target config.OutputTarget) error {
-	// FTP-Verbindung aufbauen
-	client, err := ftp.Dial(host, ftp.DialWithTimeout(30*time.Second))
+	// FTP-Verbindung aufbauen und anmelden
+	ftpConfig := target.GetFTPConfig()
+	client, err := connectAndLoginFTP(host, ftpConfig)
 	if err != nil {
-		return fmt.Errorf("FTP-Verbindung fehlgeschlagen: %w", err)
+		return err
 	}
 	defer client.Quit()
-
-	// Anmelden
-	ftpConfig := target.GetFTPConfig()
-	if err := client.Login(ftpConfig.Username, ftpConfig.Password); err != nil {
-		return fmt.Errorf("FTP-Anmeldung fehlgeschlagen: %w", err)
-	}
 
 	// Remote-Verzeichnis erstellen (falls nötig)
 	remoteDir := filepath.Dir(remotePath)
@@ -357,7 +390,7 @@ func (fh *FileHandler) copyToFTPRegular(srcPath, remotePath, host string, target
 			}
 			currentPath = filepath.Join(currentPath, dir)
 			// Unix-Style Pfad für FTP
-			currentPath = strings.ReplaceAll(currentPath, "\\", "/")
+			currentPath = normalizeRemotePath(currentPath)
 			if err := client.MakeDir(currentPath); err != nil {
 				// Fehler ignorieren falls Verzeichnis bereits existiert
 				slog.Debug("Verzeichnis existiert möglicherweise bereits", "verzeichnis", currentPath)
@@ -373,7 +406,7 @@ func (fh *FileHandler) copyToFTPRegular(srcPath, remotePath, host string, target
 	defer srcFile.Close()
 
 	// Unix-Style Pfad für FTP verwenden
-	remotePath = strings.ReplaceAll(remotePath, "\\", "/")
+	remotePath = normalizeRemotePath(remotePath)
 
 	// Datei übertragen
 	if err := client.Stor(remotePath, srcFile); err != nil {
@@ -453,74 +486,44 @@ func (fh *FileHandler) deleteFromS3(relPath string, target config.OutputTarget) 
 		return fmt.Errorf("fehler beim Abrufen des S3-Clients: %w", err)
 	}
 
-	// S3-Pfad parsen (s3://bucket/prefix)
-	u, err := url.Parse(target.Path)
+	// S3-Pfad parsen
+	s3Path, err := parseS3Path(target.Path, relPath)
 	if err != nil {
-		return fmt.Errorf("ungültiger S3-Pfad: %w", err)
+		return fmt.Errorf("fehler beim Parsen des S3-Pfads: %w", err)
 	}
-
-	bucketName := u.Host
-	prefix := strings.TrimPrefix(u.Path, "/")
 
 	// Bucket-Name sanitarisieren
-	bucketName = minioClient.SanitizeBucketName(bucketName)
-
-	// S3-Objekt-Key erstellen
-	objectKey := relPath
-	if prefix != "" {
-		objectKey = filepath.Join(prefix, relPath)
-	}
-	// Für S3 immer Unix-Style Pfade verwenden
-	objectKey = strings.ReplaceAll(objectKey, "\\", "/")
+	bucketName := minioClient.SanitizeBucketName(s3Path.bucketName)
 
 	// Datei löschen
-	if err := minioClient.DeleteFile(bucketName, objectKey); err != nil {
+	if err := minioClient.DeleteFile(bucketName, s3Path.objectKey); err != nil {
 		return fmt.Errorf("fehler beim S3-Löschen: %w", err)
 	}
 
 	slog.Debug("Datei erfolgreich von S3 gelöscht",
 		"bucket", bucketName,
-		"key", objectKey,
+		"key", s3Path.objectKey,
 		"endpoint", s3Config.Endpoint)
 	return nil
 }
 
 // deleteFromFTP löscht eine Datei vom FTP-Server
 func (fh *FileHandler) deleteFromFTP(relPath string, target config.OutputTarget) error {
-	// FTP-Pfad parsen (ftp://server/path)
-	u, err := url.Parse(target.Path)
+	host, remotePath, err := parseRemotePath(target.Path, relPath, "21")
 	if err != nil {
-		return fmt.Errorf("ungültiger FTP-Pfad: %w", err)
+		return fmt.Errorf("fehler beim Parsen des FTP-Pfads: %w", err)
 	}
 
-	host := u.Host
-	remotePath := strings.TrimPrefix(u.Path, "/")
-	if remotePath != "" {
-		remotePath = filepath.Join(remotePath, relPath)
-	} else {
-		remotePath = relPath
-	}
-
-	// Standard-Port setzen falls nicht angegeben
-	if !strings.Contains(host, ":") {
-		host += ":21"
-	}
-
-	// FTP-Verbindung aufbauen
-	client, err := ftp.Dial(host, ftp.DialWithTimeout(30*time.Second))
+	// FTP-Verbindung aufbauen und anmelden
+	ftpConfig := target.GetFTPConfig()
+	client, err := connectAndLoginFTP(host, ftpConfig)
 	if err != nil {
-		return fmt.Errorf("FTP-Verbindung fehlgeschlagen: %w", err)
+		return err
 	}
 	defer client.Quit()
 
-	// Anmelden
-	ftpConfig := target.GetFTPConfig()
-	if err := client.Login(ftpConfig.Username, ftpConfig.Password); err != nil {
-		return fmt.Errorf("FTP-Anmeldung fehlgeschlagen: %w", err)
-	}
-
 	// Unix-Style Pfad für FTP verwenden
-	remotePath = strings.ReplaceAll(remotePath, "\\", "/")
+	remotePath = normalizeRemotePath(remotePath)
 
 	// Datei löschen
 	if err := client.Delete(remotePath); err != nil {
@@ -538,35 +541,14 @@ func (fh *FileHandler) deleteFromFTP(relPath string, target config.OutputTarget)
 
 // deleteFromSFTP löscht eine Datei vom SFTP-Server
 func (fh *FileHandler) deleteFromSFTP(relPath string, target config.OutputTarget) error {
-	// SFTP-Pfad parsen (sftp://server/path)
-	u, err := url.Parse(target.Path)
+	host, remotePath, err := parseRemotePath(target.Path, relPath, "22")
 	if err != nil {
-		return fmt.Errorf("ungültiger SFTP-Pfad: %w", err)
-	}
-
-	host := u.Host
-	remotePath := strings.TrimPrefix(u.Path, "/")
-	if remotePath != "" {
-		remotePath = filepath.Join(remotePath, relPath)
-	} else {
-		remotePath = relPath
-	}
-
-	// Standard-Port setzen falls nicht angegeben
-	if !strings.Contains(host, ":") {
-		host += ":22"
+		return fmt.Errorf("fehler beim Parsen des SFTP-Pfads: %w", err)
 	}
 
 	// SSH-Verbindung aufbauen
 	ftpConfig := target.GetFTPConfig()
-	config := &ssh.ClientConfig{
-		User: ftpConfig.Username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(ftpConfig.Password),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         30 * time.Second,
-	}
+	config := createSSHConfig(ftpConfig)
 
 	conn, err := ssh.Dial("tcp", host, config)
 	if err != nil {
