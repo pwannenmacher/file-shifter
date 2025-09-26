@@ -2,7 +2,8 @@
 
 ## 🧪 Übersicht
 
-Diese Test-Suite bietet umfassende Tests für alle Konfigurationsmethoden und Zieltypen von File Shifter. Alle Tests sind isoliert, non-destructive und self-contained.
+Diese Test-Suite bietet umfassende Tests für alle Konfigurationsmethoden und Zieltypen von File Shifter. Alle Tests sind
+isoliert, non-destructive und self-contained.
 
 ## 🚀 Quick Start
 
@@ -21,47 +22,49 @@ Diese Test-Suite bietet umfassende Tests für alle Konfigurationsmethoden und Zi
 
 ### Standard & Filesystem Tests
 
-| Script | Beschreibung | Konfiguration |
-|--------|-------------|---------------|
-| `test-default.sh` | Zero-Configuration Test | Keine (Standard-Defaults) |
-| `test-fs-env.sh` | Filesystem mit ENV-Variablen | `.env` |
-| `test-fs-yaml.sh` | Filesystem mit YAML | `env.yaml` |
-| `test-fs-env-json.sh` | Filesystem mit JSON ENV | `.env` (JSON-Format) |
+| Script                | Beschreibung                 | Konfiguration             | Details                                                |
+|-----------------------|------------------------------|---------------------------|--------------------------------------------------------|
+| `test-default.sh`     | Zero-Configuration Test      | Keine (Standard-Defaults) | Testet ./input → ./output, überprüft Standard-Defaults |
+| `test-fs-env.sh`      | Filesystem mit ENV-Variablen | `.env`                    | Multi-Target Filesystem-Setup, ENV-Priorität           |
+| `test-fs-yaml.sh`     | Filesystem mit YAML          | `env.yaml`                | Strukturierte YAML-Konfiguration                       |
+| `test-fs-env-json.sh` | Filesystem mit JSON ENV      | `.env` (JSON-Format)      | Legacy JSON-Struktur (Rückwärtskompatibilität)         |
 
 ### S3 Tests (MinIO erforderlich)
 
-| Script | Beschreibung | Konfiguration |
-|--------|-------------|---------------|
-| `test-s3-env.sh` | S3/MinIO mit ENV-Variablen | `.env` |
-| `test-s3-yaml.sh` | S3/MinIO mit YAML | `env.yaml` |
+| Script            | Beschreibung               | Konfiguration | Details                                            |
+|-------------------|----------------------------|---------------|----------------------------------------------------|
+| `test-s3-env.sh`  | S3/MinIO mit ENV-Variablen | `.env`        | S3-Integration über ENV, MinIO-Client Verifikation |
+| `test-s3-yaml.sh` | S3/MinIO mit YAML          | `env.yaml`    | S3-Integration über YAML, Bucket-Verifikation      |
 
 ### Kombinierte Tests
 
-| Script | Beschreibung | Konfiguration |
-|--------|-------------|---------------|
-| `test-combined.sh` | Multi-Target (FS + S3) | `.env` + `env.yaml` |
+| Script             | Beschreibung           | Konfiguration       | Details                                               |
+|--------------------|------------------------|---------------------|-------------------------------------------------------|
+| `test-combined.sh` | Multi-Target (FS + S3) | `.env` + `env.yaml` | Konfigurationshierarchie (.env überschreibt env.yaml) |
 
 ### Spezial-Tests
 
-| Script | Beschreibung | Zweck |
-|--------|-------------|-------|
-| `test-yml-format.sh` | YAML-Format-Test | Validierung verschiedener YAML-Strukturen |
+| Script               | Beschreibung     | Zweck                                     | Details                                 |
+|----------------------|------------------|-------------------------------------------|-----------------------------------------|
+| `test-yml-format.sh` | YAML-Format-Test | Validierung verschiedener YAML-Strukturen | env.yml vs env.yaml, Konflikt-Erkennung |
 
 ## 🔧 Utilities
 
-| Script | Beschreibung | Verwendung |
-|--------|-------------|-----------|
+| Script             | Beschreibung              | Verwendung                  |
+|--------------------|---------------------------|-----------------------------|
 | `test-overview.sh` | Test-Übersicht und Runner | Interaktiv oder `--run-all` |
-| `clean.sh` | Interaktives Aufräumen | Benutzergeführt |
-| `clean-auto.sh` | Automatisches Aufräumen | CI/CD, nach Tests |
+| `clean.sh`         | Interaktives Aufräumen    | Benutzergeführt             |
+| `clean-auto.sh`    | Automatisches Aufräumen   | CI/CD, nach Tests           |
 
 ## ⚙️ Voraussetzungen
 
 ### Basis-Tests (immer verfügbar)
+
 - Go 1.19+ installiert
 - Schreibrechte im Workspace
 
 ### S3-Tests (optional)
+
 ```bash
 # MinIO starten
 docker run -d -p 9000:9000 -p 9001:9001 \
@@ -73,13 +76,37 @@ docker run -d -p 9000:9000 -p 9001:9001 \
 
 ## 🎯 Test-Features
 
+### Test-Philosophie
+
+**Isolation**
+
+- Jeder Test läuft in isolierter Umgebung
+- Keine Abhängigkeiten zwischen Tests
+- Sauberer Zustand vor und nach jedem Test
+
+**Non-destructive**
+
+- Original-Konfigurationsdateien werden gesichert
+- Vollständige Wiederherstellung nach Tests
+- Workspace bleibt unverändert
+
+**Self-contained**
+
+- Automatische Dependency-Prüfung (z.B. MinIO)
+- Build-Integration ohne externe Dependencies
+- Klare Fehlermeldungen bei fehlenden Voraussetzungen
+
 ### Automatisches Test-Management
-- ✅ Fresh Build vor jedem Test
+
+- ✅ Fresh Build vor jedem Test (`go build -o file-shifter ..`)
+- ✅ Build-Validierung (Test stoppt bei Build-Fehlern)
 - ✅ Backup/Restore von Konfigurationsdateien
 - ✅ Isolierte Test-Umgebung
 - ✅ Vollständiges Cleanup nach Test
+- ✅ Isolierte Binaries (jeder Test verwendet eigene Binary)
 
 ### Test-Isolation
+
 - Jeder Test läuft unabhängig
 - Original-Workspace bleibt unverändert
 - Keine Abhängigkeiten zwischen Tests
@@ -87,6 +114,7 @@ docker run -d -p 9000:9000 -p 9001:9001 \
 ## 📋 Typische Workflows
 
 ### Entwicklung
+
 ```bash
 # Nach Code-Änderungen testen
 ./test-fs-env.sh
@@ -94,6 +122,7 @@ docker run -d -p 9000:9000 -p 9001:9001 \
 ```
 
 ### CI/CD Pipeline
+
 ```bash
 # Vollständige Test-Suite
 ./test-overview.sh --run-all
@@ -101,6 +130,7 @@ docker run -d -p 9000:9000 -p 9001:9001 \
 ```
 
 ### S3-Integration testen
+
 ```bash
 # MinIO starten (falls nicht aktiv)
 docker run -d -p 9000:9000 --name minio \
@@ -115,6 +145,7 @@ docker run -d -p 9000:9000 --name minio \
 ```
 
 ### Debug-Session
+
 ```bash
 # Test mit Debug-Logs
 LOG_LEVEL=DEBUG ./test-fs-env.sh
@@ -126,6 +157,7 @@ LOG_LEVEL=DEBUG ./test-fs-env.sh
 ## 🔍 Test-Details
 
 ### Ausgabe-Beispiel
+
 ```text
 🧪 Testing File Shifter with Filesystem ENV configuration
 ✅ Build erfolgreich: file-shifter
@@ -144,6 +176,7 @@ LOG_LEVEL=DEBUG ./test-fs-env.sh
 ### Fehlerbehebung
 
 **Test schlägt fehl:**
+
 ```bash
 # Logs prüfen
 LOG_LEVEL=DEBUG ./test-fs-env.sh
@@ -153,6 +186,7 @@ LOG_LEVEL=DEBUG ./test-fs-env.sh
 ```
 
 **MinIO nicht verfügbar:**
+
 ```bash
 # Status prüfen
 docker ps | grep minio
@@ -162,6 +196,7 @@ docker run -d -p 9000:9000 --name minio ...
 ```
 
 **Build-Fehler:**
+
 ```bash
 # Dependencies aktualisieren
 go mod tidy
@@ -179,6 +214,7 @@ go build -o file-shifter ..
 ## 🤝 Beitrag leisten
 
 Beim Hinzufügen neuer Tests:
+
 1. Folgen Sie dem Naming-Schema `test-[kategorie]-[typ].sh`
 2. Implementieren Sie Backup/Restore-Mechanismus
 3. Fügen Sie Cleanup-Logik hinzu
