@@ -2,7 +2,7 @@
 echo "=== Test der alten ENV-Struktur (Rückwärtskompatibilität) ==="
 
 # Build die Anwendung
-go build -o file-shifter . || exit 1
+(cd .. && go build -o test-scripts/file-shifter .) || exit 1
 
 # Cleanup
 rm -rf input output1 output2 .env env.yaml 2>/dev/null

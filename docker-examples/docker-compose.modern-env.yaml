@@ -1,0 +1,99 @@
+# YAML-basierte Konfiguration (moderne YAML-Syntax)
+services:
+  file-shifter:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: file-shifter
+    restart: unless-stopped
+    
+    # Environment-Variablen als Key-Value-Paare (YAML-Stil)
+    environment:
+      # Logging
+      LOG_LEVEL: INFO
+      
+      # Input Directory
+      INPUT: /app/input
+      
+      # File Stability
+      FILE_STABILITY_MAX_RETRIES: 30
+      FILE_STABILITY_CHECK_INTERVAL: 1
+      FILE_STABILITY_PERIOD: 1
+      
+      # Output Targets (YAML-Format für bessere Lesbarkeit)
+      OUTPUTS: |
+        - path: "/app/output/filesystem1"
+          type: "filesystem"
+        - path: "/app/output/filesystem2"
+          type: "filesystem"
+        - path: "s3://my-bucket/output3"
+          type: "s3"
+          endpoint: "minio:9000"
+          access-key: "minioadmin"
+          secret-key: "minioadmin"
+          ssl: false
+          region: "eu-central-1"
+        - path: "sftp://sftp-server:22/uploads"
+          type: "sftp"
+          username: "user"
+          password: "password"
+    
+    # Volumes
+    volumes:
+      - ./input:/app/input
+      - ./output:/app/output
+      - ./config:/app/config:ro
+    
+    # Netzwerk
+    networks:
+      - file-shifter-network
+    
+    # Abhängigkeiten
+    depends_on:
+      - minio
+      - sftp-server
+
+  # MinIO-Service für S3-kompatible Storage
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_REGION: eu-central-1
+    volumes:
+      - minio_data:/data
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    command: server /data --console-address ":9001"
+    networks:
+      - file-shifter-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # SFTP-Server für Tests
+  sftp-server:
+    image: atmoz/sftp:latest
+    container_name: sftp-server
+    restart: unless-stopped
+    environment:
+      - SFTP_USERS=user:password:1001
+    volumes:
+      - sftp_data:/home/user/uploads
+    ports:
+      - "127.0.0.1:2222:22"
+    networks:
+      - file-shifter-network
+
+networks:
+  file-shifter-network:
+    driver: bridge
+
+volumes:
+  minio_data:
+  sftp_data:

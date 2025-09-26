@@ -1,0 +1,102 @@
+# Produktions-Setup mit externen Environment-Variablen
+services:
+  file-shifter:
+    image: pwannenmacher/file-shifter:latest  # Pre-built image für Produktion
+    container_name: file-shifter-prod
+    restart: always
+    
+    # Environment-Variablen - diese sollten durch externe .env-Datei oder Secrets gesetzt werden
+    environment:
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      
+      # Input-Directory
+      INPUT: ${INPUT:-/app/input}
+      
+      # File Stability (Produktions-Werte)
+      FILE_STABILITY_MAX_RETRIES: ${FILE_STABILITY_MAX_RETRIES:-30}
+      FILE_STABILITY_CHECK_INTERVAL: ${FILE_STABILITY_CHECK_INTERVAL:-1}
+      FILE_STABILITY_PERIOD: ${FILE_STABILITY_PERIOD:-2}
+      
+      # Output-Targets (moderne Struktur)
+      OUTPUT_1_PATH: ${OUTPUT_1_PATH}
+      OUTPUT_1_TYPE: ${OUTPUT_1_TYPE}
+      OUTPUT_1_ENDPOINT: ${OUTPUT_1_ENDPOINT}
+      OUTPUT_1_ACCESS_KEY: ${OUTPUT_1_ACCESS_KEY}
+      OUTPUT_1_SECRET_KEY: ${OUTPUT_1_SECRET_KEY}
+      OUTPUT_1_SSL: ${OUTPUT_1_SSL:-true}
+      OUTPUT_1_REGION: ${OUTPUT_1_REGION:-eu-central-1}
+      
+      OUTPUT_2_PATH: ${OUTPUT_2_PATH}
+      OUTPUT_2_TYPE: ${OUTPUT_2_TYPE}
+      OUTPUT_2_ENDPOINT: ${OUTPUT_2_ENDPOINT}
+      OUTPUT_2_ACCESS_KEY: ${OUTPUT_2_ACCESS_KEY}
+      OUTPUT_2_SECRET_KEY: ${OUTPUT_2_SECRET_KEY}
+      OUTPUT_2_SSL: ${OUTPUT_2_SSL:-true}
+      OUTPUT_2_REGION: ${OUTPUT_2_REGION:-eu-central-1}
+      
+      OUTPUT_3_PATH: ${OUTPUT_3_PATH}
+      OUTPUT_3_TYPE: ${OUTPUT_3_TYPE}
+      OUTPUT_3_HOST: ${OUTPUT_3_HOST}
+      OUTPUT_3_USERNAME: ${OUTPUT_3_USERNAME}
+      OUTPUT_3_PASSWORD: ${OUTPUT_3_PASSWORD}
+    
+    # Volumes - externe Pfade für Produktion
+    volumes:
+      - ${HOST_INPUT_DIR:-/data/input}:/app/input
+      - ${HOST_OUTPUT_DIR:-/data/output}:/app/output
+      - ${HOST_CONFIG_DIR:-/data/config}:/app/config:ro
+    
+    # Resource-Limits für Produktion
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.2'
+    
+    # Logging-Konfiguration für Produktion
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    
+    # Health-Check
+    healthcheck:
+      test: ["CMD", "ps", "aux", "|", "grep", "[m]ain"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+# Beispiel .env-Datei für Produktion:
+# LOG_LEVEL=INFO
+# INPUT=/app/input
+# 
+# # Lokales Backup
+# OUTPUT_1_PATH=/app/output/backup
+# OUTPUT_1_TYPE=filesystem
+#
+# # AWS S3 Produktion
+# OUTPUT_2_PATH=s3://prod-bucket/files
+# OUTPUT_2_TYPE=s3
+# OUTPUT_2_ENDPOINT=s3.amazonaws.com
+# OUTPUT_2_ACCESS_KEY=AKIAI...
+# OUTPUT_2_SECRET_KEY=wJalr...
+# OUTPUT_2_SSL=true
+# OUTPUT_2_REGION=eu-central-1
+#
+# # SFTP Offsite-Backup
+# OUTPUT_3_PATH=sftp://backup-server.com/files
+# OUTPUT_3_TYPE=sftp
+# OUTPUT_3_HOST=backup-server.com
+# OUTPUT_3_USERNAME=backup_user
+# OUTPUT_3_PASSWORD=secure_password
+#
+# # Host-Directories
+# HOST_INPUT_DIR=/data/input
+# HOST_OUTPUT_DIR=/data/output
+# HOST_CONFIG_DIR=/data/config

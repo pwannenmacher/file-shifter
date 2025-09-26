@@ -1,0 +1,119 @@
+services:
+  shifter:
+    image: pwannenmacher/file-shifter:latest
+    #build:
+    #  context: ./..
+    #  dockerfile: Dockerfile
+    restart: unless-stopped
+    volumes:
+      - ./input:/app/input
+      - ./output1:/app/output1:rw
+      - ./output2:/app/output2:rw
+    environment:
+      LOG_LEVEL: INFO
+      INPUT: /app/input
+      FILE_STABILITY_MAX_RETRIES: 3
+      FILE_STABILITY_CHECK_INTERVAL: 1
+      FILE_STABILITY_PERIOD: 1
+      OUTPUTS: |
+        - path: "/app/output1"
+          type: "filesystem"
+        - path: "/app/output2"
+          type: "filesystem"
+        - path: "s3://bucket1"
+          type: "s3"
+          endpoint: "minio:9000"
+          access-key: "minioadmin"
+          secret-key: "minioadmin"
+          ssl: false
+          region: "eu-central-1"
+        - path: "s3://bucket2"
+          type: "s3"
+          endpoint: "minio:9000"
+          access-key: "minioadmin"
+          secret-key: "minioadmin"
+          ssl: false
+          region: "eu-central-1"
+        - path: "sftp://sftp:2022/uploads"
+          type: "sftp"
+          username: "sftp"
+          password: "sftp"
+        - path: "ftp://ftp:2121/uploads"
+          type: "ftp"
+          username: "ftp"
+          password: "ftp"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    healthcheck:
+      test: ["CMD", "ps", "aux", "|", "grep", "[m]ain"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  minio:
+    image: quay.io/minio/minio
+    hostname: minio
+    restart: unless-stopped
+    command: server /data --console-address ":9090"
+    volumes:
+      - minio-data:/data
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9090:9090"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_REGION: eu-central-1
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  sftp:
+    image: drakkan/sftpgo:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:2022:2022"  # SFTP port
+      - "127.0.0.1:8080:8080"  # Admin UI port
+    volumes:
+      - sftp-data:/srv/sftpgo/data
+      - sftp-config:/var/lib/sftpgo
+    environment:
+      - SFTPGO_DEFAULT_ADMIN_USERNAME=admin
+      - SFTPGO_DEFAULT_ADMIN_PASSWORD=admin123
+    command: sftpgo serve
+
+  ftp:
+    image: drakkan/sftpgo:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:2021:2121"      # FTP control port
+      - "127.0.0.1:50000-50100:50000-50100"  # FTP passive mode range
+      - "127.0.0.1:8081:8080"  # Admin UI port
+    volumes:
+      - ftp-data:/srv/sftpgo/data
+      - ftp-config:/var/lib/sftpgo
+    environment:
+      - SFTPGO_DEFAULT_ADMIN_USERNAME=admin
+      - SFTPGO_DEFAULT_ADMIN_PASSWORD=admin123
+      - SFTPGO_FTPD__BINDINGS__0__PORT=2121
+      - SFTPGO_FTPD__BINDINGS__0__ADDRESS=
+      - SFTPGO_FTPD__PASSIVE_PORT_RANGE__START=50000
+      - SFTPGO_FTPD__PASSIVE_PORT_RANGE__END=50100
+      - SFTPGO_SFTPD__BINDINGS__0__PORT=0  # Disable SFTP on FTP service
+    command: sftpgo serve
+
+volumes:
+  minio-data:
+  sftp-data:
+  sftp-config:
+  ftp-data:
+  ftp-config:

@@ -1,10 +1,10 @@
 #!/bin/bash
 
-echo "=== Test mit env.yaml für S3-Ziele ==="
+echo "=== Test mit .env für S3-Ziele ==="
 
 # Build die Anwendung
 echo "Baue file-shifter..."
-go build -o file-shifter . || {
+(cd .. && go build -o test-scripts/file-shifter .) || {
     echo "❌ Build fehlgeschlagen"
     exit 1
 }
@@ -27,29 +27,27 @@ if ! curl -s http://localhost:9000/minio/health/live > /dev/null 2>&1; then
 fi
 echo "✅ MinIO ist verfügbar"
 
-echo "Erstelle Test-Umgebung mit env.yaml-Konfiguration..."
+echo "Erstelle Test-Umgebung mit .env-Konfiguration..."
 
-# env.yaml-Datei für S3-Test erstellen
-cat > env.yaml << 'EOF'
-log:
-  level: INFO
-input: ./input
-output:
-  - path: s3://test-bucket/output
-    type: s3
-    endpoint: localhost:9000
-    access-key: minioadmin
-    secret-key: minioadmin
-    ssl: false
-    region: eu-central-1
+# .env-Datei für S3-Test erstellen
+cat > .env << 'EOF'
+LOG_LEVEL=INFO
+INPUT=./input
+OUTPUT_1_PATH=s3://test-bucket/output
+OUTPUT_1_TYPE=s3
+OUTPUT_1_ENDPOINT=localhost:9000
+OUTPUT_1_ACCESS_KEY=minioadmin
+OUTPUT_1_SECRET_KEY=minioadmin
+OUTPUT_1_SSL=false
+OUTPUT_1_REGION=eu-central-1
 EOF
 
-echo "Erstelle env.yaml-Konfiguration:"
-cat env.yaml
+echo "Erstelle .env-Konfiguration:"
+cat .env
 
 # Test-Dateien erstellen  
 mkdir -p input/subdir
-echo "S3 YAML Test-Datei" > input/s3-yaml.txt
+echo "S3 ENV Test-Datei" > input/s3-env.txt
 echo "Subdirectory Test-Datei" > input/subdir/sub.txt
 
 echo ""
@@ -104,10 +102,10 @@ else
 fi
 
 echo ""
-echo "Test mit env.yaml für S3-Ziele abgeschlossen."
+echo "Test mit .env für S3-Ziele abgeschlossen."
 
 # Cleanup: Entferne temporäre Dateien und stelle Backup wieder her
-rm -f file-shifter env.yaml
+rm -f file-shifter .env
 [ -f .env.backup.test ] && mv .env.backup.test .env
 [ -f env.yaml.backup.test ] && mv env.yaml.backup.test env.yaml
 echo "🧹 Aufgeräumt und Original-Konfiguration wiederhergestellt"
