@@ -77,7 +77,7 @@ func (fw *FileWatcher) Start() error {
 			if !ok {
 				return nil
 			}
-			slog.Error("File-Watcher Fehler", "fehler", err)
+			slog.Error("File-Watcher Fehler", "error", err)
 		}
 	}
 }
@@ -102,63 +102,59 @@ func (fw *FileWatcher) addRecursiveWatcher(root string) error {
 func (fw *FileWatcher) handleEvent(event fsnotify.Event) {
 	slog.Debug("File-System Event empfangen", "event", event.Name, "op", event.Op)
 
-	// Bei CREATE, WRITE und CHMOD Events verarbeiten
+	// Process CREATE, WRITE, and CHMOD events
 	if event.Op&fsnotify.Create == fsnotify.Create ||
 		event.Op&fsnotify.Write == fsnotify.Write ||
 		event.Op&fsnotify.Chmod == fsnotify.Chmod {
 
-		// Überprüfen, ob es eine Datei ist
+		// Check whether it is a file
 		info, err := os.Stat(event.Name)
 		if err != nil {
-			slog.Debug("Fehler beim Lesen der Datei-Info", "datei", event.Name, "fehler", err)
+			slog.Debug("Error reading file info", "file", event.Name, "error", err)
 			return
 		}
 
 		if info.IsDir() {
-			// Neues Verzeichnis - Watcher hinzufügen
+			// New directory - Add watcher
 			if event.Op&fsnotify.Create == fsnotify.Create {
 				if err := fw.watcher.Add(event.Name); err != nil {
-					slog.Error("Fehler beim Hinzufügen des Watcher für neues Verzeichnis", "verzeichnis", event.Name, "fehler", err)
+					slog.Error("Error adding watcher for new directory", "directory", event.Name, "error", err)
 				}
 			}
 			return
 		}
 
-		// Datei verarbeiten
 		fw.processFile(event.Name)
 	}
 }
 
 func (fw *FileWatcher) processFile(filePath string) {
-	// Überprüfen, ob Datei noch existiert (könnte zwischenzeitlich gelöscht worden sein)
+	// Check whether the file still exists (it may have been deleted in the meantime).
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		slog.Debug("Datei existiert nicht mehr", "datei", filePath)
+		slog.Debug("File no longer exists", "file", filePath)
 		return
 	}
 
-	// Temporäre Dateien und versteckte Dateien ignorieren
 	fileName := filepath.Base(filePath)
 	if fileName[0] == '.' || fileName[0] == '~' {
-		slog.Debug("Ignoriere temporäre/versteckte Datei", "datei", filePath)
+		slog.Debug("Ignore temporary/hidden file", "file", filePath)
 		return
 	}
 
-	slog.Info("Neue Datei erkannt", "datei", filePath)
+	slog.Info("Neue Datei erkannt", "file", filePath)
 
-	// Warten bis Datei vollständig ist
 	if err := fw.waitForCompleteFile(filePath); err != nil {
-		slog.Error("Datei ist nicht vollständig - Verarbeitung übersprungen", "datei", filePath, "fehler", err)
+		slog.Error("Datei ist nicht vollständig - Verarbeitung übersprungen", "file", filePath, "error", err)
 		return
 	}
 
-	// Datei über FileHandler verarbeiten
 	if err := fw.fileHandler.ProcessFile(filePath, fw.inputDir); err != nil {
-		slog.Error("Fehler beim Verarbeiten der Datei", "datei", filePath, "fehler", err)
+		slog.Error("Error processing file", "file", filePath, "error", err)
 	}
 }
 
 func (fw *FileWatcher) processExistingFiles() {
-	slog.Info("Suche nach bereits vorhandenen Dateien im Input-Directory")
+	slog.Info("Search for existing files in the input directory")
 
 	err := filepath.Walk(fw.inputDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -174,48 +170,48 @@ func (fw *FileWatcher) processExistingFiles() {
 	})
 
 	if err != nil {
-		slog.Error("Fehler beim Verarbeiten vorhandener Dateien", "fehler", err)
+		slog.Error("Error processing existing files", "error", err)
 	}
 }
 
-// waitForCompleteFile wartet bis eine Datei vollständig ist (nicht mehr geschrieben wird)
+// waitForCompleteFile waits until a file is complete (no more writing is taking place)
 func (fw *FileWatcher) waitForCompleteFile(filePath string) error {
-	slog.Debug("Prüfe Vollständigkeit der Datei", "datei", filePath)
+	slog.Debug("Check file completeness", "file", filePath)
 
 	for retry := 0; retry < fw.maxRetries; retry++ {
 		// 1. Datei-Stabilitätsprüfung
 		if !fw.isFileStable(filePath, fw.stabilityPeriod) {
-			slog.Debug("Datei ist noch nicht stabil - warte weiter", "datei", filePath, "versuch", retry+1)
+			slog.Debug("File is not yet stable - please continue to wait", "file", filePath, "attempt", retry+1)
 			continue
 		}
 
 		// 2. Exklusiver Zugriff Test
 		if !fw.canOpenExclusively(filePath) {
-			slog.Debug("Datei ist noch von anderem Prozess geöffnet", "datei", filePath, "versuch", retry+1)
+			slog.Debug("File is still open in another process", "file", filePath, "attempt", retry+1)
 			time.Sleep(fw.checkInterval)
 			continue
 		}
 
 		// 3. lsof-Prüfung (nur Unix/macOS, wenn verfügbar)
 		if runtime.GOOS != "windows" && fw.lsofAvailable && fw.isFileOpenByOtherProcess(filePath) {
-			slog.Debug("Datei ist laut lsof noch geöffnet", "datei", filePath, "versuch", retry+1)
+			slog.Debug("File is still open according to lsof", "file", filePath, "attempt", retry+1)
 			time.Sleep(fw.checkInterval)
 			continue
 		}
 
 		// Alle Prüfungen bestanden
-		slog.Info("Datei ist vollständig und bereit zur Verarbeitung", "datei", filePath, "versuche", retry+1)
+		slog.Info("File is complete and ready for processing", "file", filePath, "attempt", retry+1)
 		return nil
 	}
 
-	return fmt.Errorf("datei ist nach %d Versuchen noch nicht vollständig: %s", fw.maxRetries, filePath)
+	return fmt.Errorf("file is still incomplete after %d attempts: %s", fw.maxRetries, filePath)
 }
 
 // isFileStable prüft ob sich Dateigröße und ModTime über checkDuration nicht ändern
 func (fw *FileWatcher) isFileStable(filePath string, checkDuration time.Duration) bool {
 	initialStat, err := os.Stat(filePath)
 	if err != nil {
-		slog.Debug("Fehler beim ersten Stat", "datei", filePath, "fehler", err)
+		slog.Debug("Error during initialisation", "file", filePath, "error", err)
 		return false
 	}
 
@@ -223,7 +219,7 @@ func (fw *FileWatcher) isFileStable(filePath string, checkDuration time.Duration
 
 	finalStat, err := os.Stat(filePath)
 	if err != nil {
-		slog.Debug("Fehler beim zweiten Stat", "datei", filePath, "fehler", err)
+		slog.Debug("Error in the second stat", "file", filePath, "error", err)
 		return false
 	}
 
@@ -231,12 +227,12 @@ func (fw *FileWatcher) isFileStable(filePath string, checkDuration time.Duration
 		initialStat.ModTime().Equal(finalStat.ModTime())
 
 	if !stable {
-		slog.Debug("Datei-Instabilität erkannt",
-			"datei", filePath,
-			"größe_alt", initialStat.Size(),
-			"größe_neu", finalStat.Size(),
-			"zeit_alt", initialStat.ModTime(),
-			"zeit_neu", finalStat.ModTime())
+		slog.Debug("File instability detected",
+			"file", filePath,
+			"size_old", initialStat.Size(),
+			"size_new", finalStat.Size(),
+			"timestamp_old", initialStat.ModTime(),
+			"timestamp_new", finalStat.ModTime())
 	}
 
 	return stable
@@ -280,10 +276,10 @@ func (fw *FileWatcher) canOpenExclusively(filePath string) bool {
 	return true
 }
 
-// isFileOpenByOtherProcess prüft mit lsof ob die Datei von anderen Prozessen geöffnet ist
+// isFileOpenByOtherProcess uses lsof to check whether the file is open by other processes
 func (fw *FileWatcher) isFileOpenByOtherProcess(filePath string) bool {
 	if runtime.GOOS == "windows" {
-		return false // lsof gibt es nicht unter Windows
+		return false // lsof is not available on Windows
 	}
 
 	output, err := fw.executeLsof(filePath)
@@ -294,7 +290,7 @@ func (fw *FileWatcher) isFileOpenByOtherProcess(filePath string) bool {
 	return fw.hasRelevantProcesses(filePath, output)
 }
 
-// isHarmlessProcess prüft ob ein Prozess als harmlos eingestuft werden kann
+// isHarmlessProcess checks whether a process can be classified as harmless.
 func (fw *FileWatcher) isHarmlessProcess(processName string) bool {
 	harmlessProcesses := []string{
 		"mds", "mds_stores", "mdworker", "mdworker_shared", // macOS Spotlight
@@ -312,34 +308,34 @@ func (fw *FileWatcher) isHarmlessProcess(processName string) bool {
 	return false
 }
 
-// executeLsof führt lsof-Kommando aus und behandelt Fehler
+// executeLsof executes the lsof command and handles errors
 func (fw *FileWatcher) executeLsof(filePath string) (string, error) {
 	cmd := exec.Command("lsof", filePath)
 	output, err := cmd.Output()
 
 	if err != nil {
-		// lsof exit code 1 bedeutet "keine offenen Files gefunden" - das ist gut
+		// lsof exit code 1 means ‘no open files found’ – that's good.
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			if exitErr.ExitCode() == 1 {
 				return "", fmt.Errorf("no open files")
 			}
 		}
-		// Anderer Fehler (Berechtigung, etc.) - als Fehler behandeln
-		slog.Debug("lsof-Fehler ignoriert", "datei", filePath, "fehler", err)
+		// Other error (authorisation, etc.) - treat as an error
+		slog.Debug("lsof error ignored", "file", filePath, "error", err)
 		return "", err
 	}
 
 	return string(output), nil
 }
 
-// hasRelevantProcesses prüft ob relevante Prozesse die Datei offen haben
+// hasRelevantProcesses checks whether relevant processes have the file open
 func (fw *FileWatcher) hasRelevantProcesses(filePath, lsofOutput string) bool {
 	lines := strings.Split(strings.TrimSpace(lsofOutput), "\n")
 	if len(lines) <= 1 {
-		return false // Nur Header oder leer
+		return false // Header only or empty
 	}
 
-	// Header überspringen und Prozesse analysieren
+	// Skip header and analyse processes
 	for _, line := range lines[1:] {
 		if fw.isRelevantProcess(filePath, line) {
 			return true
@@ -349,7 +345,7 @@ func (fw *FileWatcher) hasRelevantProcesses(filePath, lsofOutput string) bool {
 	return false
 }
 
-// isRelevantProcess prüft ob ein Prozess in der lsof-Zeile relevant ist
+// isRelevantProcess checks whether a process in the lsof line is relevant
 func (fw *FileWatcher) isRelevantProcess(filePath, line string) bool {
 	fields := strings.Fields(line)
 	if len(fields) < 2 {
@@ -359,17 +355,17 @@ func (fw *FileWatcher) isRelevantProcess(filePath, line string) bool {
 	processName := fields[0]
 	pid := fields[1]
 
-	// Eigenen Prozess ignorieren
+	// Ignore own process
 	if pid == strconv.Itoa(os.Getpid()) {
 		return false
 	}
 
-	// Bekannte harmlose Prozesse ignorieren
+	// Ignore known harmless processes
 	if fw.isHarmlessProcess(processName) {
 		return false
 	}
 
-	slog.Debug("Aktiver Prozess erkannt", "datei", filePath, "prozess", processName, "pid", pid)
+	slog.Debug("Active process detected", "file", filePath, "prozess", processName, "pid", pid)
 	return true
 }
 
@@ -381,10 +377,10 @@ func checkLsofAvailable() bool {
 
 	_, err := exec.LookPath("lsof")
 	if err != nil {
-		slog.Debug("lsof-Kommando nicht verfügbar - lsof-Prüfungen werden übersprungen", "fehler", err)
+		slog.Debug("lsof-Kommando nicht verfügbar - lsof-Prüfungen werden übersprungen", "error", err)
 		return false
 	}
 
-	slog.Debug("lsof-Kommando verfügbar - erweiterte Datei-Prüfungen aktiviert")
+	slog.Debug("lsof command available - advanced file checks enabled")
 	return true
 }
