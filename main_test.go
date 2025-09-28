@@ -61,20 +61,20 @@ log:
 			},
 		},
 		{
-			name: "ungültiges YAML",
+			name: "invalid YAML",
 			setupFiles: func(t *testing.T) {
 				invalidYaml := `input: /test
 invalid_yaml: [unclosed_bracket`
 				err := os.WriteFile("env.yaml", []byte(invalidYaml), 0644)
 				if err != nil {
-					t.Fatalf("Fehler beim Schreiben der ungültigen env.yaml: %v", err)
+					t.Fatalf("Error writing invalid env.yaml: %v", err)
 				}
 			},
 			expectError:    true,
 			expectedValues: nil,
 		},
 		{
-			name: "beide Dateien vorhanden - Konflikt",
+			name: "both files present - conflict",
 			setupFiles: func(t *testing.T) {
 				yamlContent := `input: /test/yaml`
 				ymlContent := `input: /test/yml`
@@ -85,16 +85,16 @@ invalid_yaml: [unclosed_bracket`
 				}
 				err = os.WriteFile("env.yml", []byte(ymlContent), 0644)
 				if err != nil {
-					t.Fatalf("Fehler beim Schreiben von env.yml: %v", err)
+					t.Fatalf("Error writing env.yml: %v", err)
 				}
 			},
 			expectError:    true,
 			expectedValues: nil,
 		},
 		{
-			name: "keine Datei vorhanden",
+			name: "no file present",
 			setupFiles: func(t *testing.T) {
-				// Keine Dateien erstellen
+				// Don't create any files
 			},
 			expectError:    true,
 			expectedValues: nil,
@@ -122,13 +122,13 @@ invalid_yaml: [unclosed_bracket`
 			// Verify error expectation
 			if tt.expectError {
 				if err == nil {
-					t.Error("Erwartete Fehler, bekommen nil")
+					t.Error("Expected error, got nil")
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("Unerwarteter Fehler: %v", err)
+				t.Errorf("Unexpected error: %v", err)
 				return
 			}
 
@@ -263,7 +263,7 @@ func TestSetupLogger(t *testing.T) {
 			setupLogger(cfg)
 
 			if tt.expectError {
-				// Da setupLogger keinen Fehler zurückgibt, erwarten wir keinen
+				// Since setupLogger returns no error, we expect none
 			}
 		})
 	}

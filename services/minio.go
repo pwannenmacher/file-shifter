@@ -62,7 +62,7 @@ func (m *MinIO) UploadFile(filePath, bucketName, fileName string) (string, error
 
 	ctx := context.Background()
 
-	// Bestimme Content-Type basierend auf Dateierweiterung
+	// Determine content type based on file extension
 	contentType := "application/octet-stream"
 	ext := filepath.Ext(fileName)
 	switch ext {
@@ -79,11 +79,11 @@ func (m *MinIO) UploadFile(filePath, bucketName, fileName string) (string, error
 	info, err := m.MinIOClient.FPutObject(ctx, bucketName, fileName, filePath,
 		minio.PutObjectOptions{ContentType: contentType})
 	if err != nil {
-		slog.Warn("Fehler beim Hochladen der Datei", "datei", fileName, "err", err)
+		slog.Warn("Error uploading file", "file", fileName, "err", err)
 		return "", err
 	}
 
-	slog.Info("Datei erfolgreich hochgeladen", "datei", fileName, "größe", info.Size)
+	slog.Info("File uploaded successfully", "file", fileName, "size", info.Size)
 	return fileName, nil
 }
 
@@ -131,10 +131,10 @@ func (m *MinIO) DeleteFile(bucketName, objectKey string) error {
 	ctx := context.Background()
 	err := m.MinIOClient.RemoveObject(ctx, bucketName, objectKey, minio.RemoveObjectOptions{})
 	if err != nil {
-		slog.Warn("Fehler beim Löschen der Datei", "bucket", bucketName, "key", objectKey, "err", err)
+		slog.Warn("Error deleting file", "bucket", bucketName, "key", objectKey, "err", err)
 		return err
 	}
 
-	slog.Info("Datei erfolgreich gelöscht", "bucket", bucketName, "key", objectKey)
+	slog.Info("File deleted successfully", "bucket", bucketName, "key", objectKey)
 	return nil
 }
