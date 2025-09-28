@@ -63,7 +63,7 @@ func (cli *CLIConfig) ApplyToCfg(cfg *EnvConfig) error {
 	if cli.OutputsJSON != "" {
 		var targets []OutputTarget
 		if err := json.Unmarshal([]byte(cli.OutputsJSON), &targets); err != nil {
-			return fmt.Errorf("fehler beim Parsen der --outputs JSON: %w", err)
+			return fmt.Errorf("error parsing --outputs JSON: %w", err)
 		}
 		cfg.Output = targets
 	}
@@ -73,7 +73,7 @@ func (cli *CLIConfig) ApplyToCfg(cfg *EnvConfig) error {
 
 // printUsage prints the usage information
 func printUsage() {
-	fmt.Fprintf(os.Stderr, `File Shifter - Robuster File-Transfer-Service
+	_, err := fmt.Fprintf(os.Stderr, `File Shifter - Robuster File-Transfer-Service
 
 USAGE:
     %s [OPTIONS]
@@ -133,6 +133,9 @@ ENVIRONMENT VARIABLES:
 For more configuration options, see the README.md or create an env.yaml file.
 
 `, os.Args[0], os.Args[0], os.Args[0], os.Args[0])
+	if err != nil {
+		return
+	}
 }
 
 // HasOutputsConfigured checks if outputs are configured via CLI
@@ -146,7 +149,7 @@ func (cli *CLIConfig) Validate() error {
 	if cli.LogLevel != "" {
 		level := strings.ToUpper(cli.LogLevel)
 		if level != "DEBUG" && level != "INFO" && level != "WARN" && level != "ERROR" {
-			return fmt.Errorf("ungültiges Log-Level: %s (erlaubt: DEBUG, INFO, WARN, ERROR)", cli.LogLevel)
+			return fmt.Errorf("invalid log level: %s (allowed: DEBUG, INFO, WARN, ERROR)", cli.LogLevel)
 		}
 	}
 
@@ -154,19 +157,19 @@ func (cli *CLIConfig) Validate() error {
 	if cli.OutputsJSON != "" {
 		var targets []OutputTarget
 		if err := json.Unmarshal([]byte(cli.OutputsJSON), &targets); err != nil {
-			return fmt.Errorf("ungültiges --outputs JSON Format: %w", err)
+			return fmt.Errorf("invalid --outputs JSON format: %w", err)
 		}
 
 		// Basic validation of targets
 		for i, target := range targets {
 			if target.Path == "" {
-				return fmt.Errorf("output target %d: 'path' ist erforderlich", i+1)
+				return fmt.Errorf("output target %d: 'path' is required", i+1)
 			}
 			if target.Type == "" {
-				return fmt.Errorf("output target %d: 'type' ist erforderlich", i+1)
+				return fmt.Errorf("output target %d: 'type' is required", i+1)
 			}
 			if target.Type != "filesystem" && target.Type != "s3" && target.Type != "sftp" && target.Type != "ftp" {
-				return fmt.Errorf("output target %d: ungültiger type '%s' (erlaubt: filesystem, s3, sftp, ftp)", i+1, target.Type)
+				return fmt.Errorf("output target %d: invalid type '%s' (allowed: filesystem, s3, sftp, ftp)", i+1, target.Type)
 			}
 		}
 	}
