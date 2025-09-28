@@ -137,7 +137,7 @@ func (w *Worker) validateFTPTarget(target config.OutputTarget) error {
 	ftpConfig := target.GetFTPConfig()
 	if ftpConfig.Host == "" || ftpConfig.Username == "" || ftpConfig.Password == "" {
 		slog.Error("Invalid FTP/SFTP configuration for target", "path", target.Path, "type", target.Type)
-		return fmt.Errorf("Invalid %s configuration for target: %s", target.Type, target.Path)
+		return fmt.Errorf("invalid %s configuration for target: %s", target.Type, target.Path)
 	}
 	return nil
 }
@@ -146,7 +146,7 @@ func (w *Worker) validateFTPTarget(target config.OutputTarget) error {
 func (w *Worker) validateFilesystemTarget(target config.OutputTarget) error {
 	if target.Path == "" {
 		slog.Error("Invalid file system configuration in the environment file")
-		return fmt.Errorf("Invalid file system configuration: empty path")
+		return fmt.Errorf("invalid file system configuration: empty path")
 	}
 	return nil
 }

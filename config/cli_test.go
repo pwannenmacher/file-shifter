@@ -413,7 +413,7 @@ func TestCLIConfig_Validate(t *testing.T) {
 				OutputsJSON: `[{"type":"filesystem"}]`,
 			},
 			wantErr: true,
-			errMsg:  "'path' ist erforderlich",
+			errMsg:  "'path' is required",
 		},
 		{
 			name: "output without type",
@@ -421,7 +421,7 @@ func TestCLIConfig_Validate(t *testing.T) {
 				OutputsJSON: `[{"path":"./output"}]`,
 			},
 			wantErr: true,
-			errMsg:  "'type' ist erforderlich",
+			errMsg:  "'type' is required",
 		},
 		{
 			name: "invalid output type",
