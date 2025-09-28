@@ -462,13 +462,13 @@ func (fh *FileHandler) deleteFromFilesystem(relPath, targetBasePath string) erro
 
 	if err := os.Remove(targetPath); err != nil {
 		if os.IsNotExist(err) {
-			slog.Debug("Datei existiert nicht im Filesystem-Ziel", "pfad", targetPath)
+			slog.Debug("Datei existiert nicht im Filesystem-Ziel", "path", targetPath)
 			return nil // Datei existiert nicht - kein Fehler
 		}
 		return fmt.Errorf("fehler beim Löschen der Filesystem-Datei: %w", err)
 	}
 
-	slog.Debug("Datei erfolgreich vom Filesystem gelöscht", "pfad", targetPath)
+	slog.Debug("Datei erfolgreich vom Filesystem gelöscht", "path", targetPath)
 	return nil
 }
 
@@ -515,7 +515,7 @@ func (fh *FileHandler) deleteFromFTP(relPath string, target config.OutputTarget)
 		return fmt.Errorf("fehler beim Parsen des FTP-Pfads: %w", err)
 	}
 
-	// FTP-Verbindung aufbauen und anmelden
+	// Establish FTP connection and log in
 	ftpConfig := target.GetFTPConfig()
 	client, err := connectAndLoginFTP(host, ftpConfig)
 	if err != nil {
@@ -523,56 +523,53 @@ func (fh *FileHandler) deleteFromFTP(relPath string, target config.OutputTarget)
 	}
 	defer client.Quit()
 
-	// Unix-Style Pfad für FTP verwenden
+	// Use Unix-style path for FTP
 	remotePath = normalizeRemotePath(remotePath)
 
-	// Datei löschen
 	if err := client.Delete(remotePath); err != nil {
-		// Prüfen ob Datei existiert (550 ist der Standard-Code für "Datei nicht gefunden")
+		// Check whether file exists (550 is the standard code for ‘file not found’)
 		if strings.Contains(err.Error(), "550") {
-			slog.Debug("Datei existiert nicht im FTP-Ziel", "pfad", remotePath)
-			return nil // Datei existiert nicht - kein Fehler
+			slog.Debug("File does not exist in FTP destination", "path", remotePath)
+			return nil // File does not exist - no error
 		}
-		return fmt.Errorf("fehler beim FTP-Löschen: %w", err)
+		return fmt.Errorf("error during FTP deletion: %w", err)
 	}
 
-	slog.Debug("Datei erfolgreich vom FTP-Server gelöscht", "pfad", remotePath, "host", host)
+	slog.Debug("File successfully deleted from the FTP server", "path", remotePath, "host", host)
 	return nil
 }
 
-// deleteFromSFTP löscht eine Datei vom SFTP-Server
+// deleteFromSFTP deletes a file from the SFTP server
 func (fh *FileHandler) deleteFromSFTP(relPath string, target config.OutputTarget) error {
 	host, remotePath, err := parseRemotePath(target.Path, relPath, "22")
 	if err != nil {
 		return fmt.Errorf("fehler beim Parsen des SFTP-Pfads: %w", err)
 	}
 
-	// SSH-Verbindung aufbauen
 	ftpConfig := target.GetFTPConfig()
 	config := createSSHConfig(ftpConfig)
 
 	conn, err := ssh.Dial("tcp", host, config)
 	if err != nil {
-		return fmt.Errorf("SSH-Verbindung fehlgeschlagen: %w", err)
+		return fmt.Errorf("SSH connection failed: %w", err)
 	}
 	defer conn.Close()
 
-	// SFTP-Client erstellen
 	client, err := sftp.NewClient(conn)
 	if err != nil {
-		return fmt.Errorf("SFTP-Client-Erstellung fehlgeschlagen: %w", err)
+		return fmt.Errorf("SFTP client creation failed: %w", err)
 	}
 	defer client.Close()
 
 	// Datei löschen
 	if err := client.Remove(remotePath); err != nil {
 		if os.IsNotExist(err) {
-			slog.Debug("Datei existiert nicht im SFTP-Ziel", "pfad", remotePath)
+			slog.Debug("File does not exist in SFTP destination", "path", remotePath)
 			return nil // Datei existiert nicht - kein Fehler
 		}
 		return fmt.Errorf("fehler beim SFTP-Löschen: %w", err)
 	}
 
-	slog.Debug("Datei erfolgreich vom SFTP-Server gelöscht", "pfad", remotePath)
+	slog.Debug("File successfully deleted from the SFTP server", "path", remotePath)
 	return nil
 }
