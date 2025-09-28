@@ -383,7 +383,7 @@ func TestCLIConfig_Validate(t *testing.T) {
 				LogLevel: "INVALID",
 			},
 			wantErr: true,
-			errMsg:  "ungültiges Log-Level",
+			errMsg:  "invalid log level",
 		},
 		{
 			name: "valid outputs JSON",
@@ -405,7 +405,7 @@ func TestCLIConfig_Validate(t *testing.T) {
 				OutputsJSON: `invalid json`,
 			},
 			wantErr: true,
-			errMsg:  "ungültiges --outputs JSON Format",
+			errMsg:  "invalid --outputs JSON format",
 		},
 		{
 			name: "output without path",
@@ -429,7 +429,7 @@ func TestCLIConfig_Validate(t *testing.T) {
 				OutputsJSON: `[{"path":"./output","type":"invalid"}]`,
 			},
 			wantErr: true,
-			errMsg:  "ungültiger type",
+			errMsg:  "invalid type",
 		},
 		{
 			name: "valid filesystem type",
