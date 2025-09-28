@@ -37,11 +37,6 @@ Create user: Username `sftp`, Password `sftp`, Home `/srv/sftpgo/data`
 
 ### FTP Server (SFTPGo)
 
-- **Port**: 2021
-- **Admin-UI**: <http://localhost:8081>
-- **Admin-Login**: `admin` / `admin123`
-
-**Benutzer konfigurieren:**
 - Port: 2021  
 - Admin UI: <http://localhost:8081>
 - Admin Login: `admin` / `admin123`
