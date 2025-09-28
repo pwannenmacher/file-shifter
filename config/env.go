@@ -18,47 +18,47 @@ type EnvConfig struct {
 	Output        OutputConfig `yaml:"output"`
 	FileStability struct {
 		MaxRetries      int `yaml:"max-retries"`      // Maximum Anzahl Wiederholungen
-		CheckInterval   int `yaml:"check-interval"`   // Prüf-Intervall in Sekunden
-		StabilityPeriod int `yaml:"stability-period"` // Stabilität-Prüfung in Sekunden
+		CheckInterval   int `yaml:"check-interval"`   // Check interval in seconds
+		StabilityPeriod int `yaml:"stability-period"` // Stability check in seconds
 	} `yaml:"file-stability"`
 }
 
-// LoadFromEnvironment lädt die Konfiguration aus Umgebungsvariablen
+// LoadFromEnvironment loads the configuration from environment variables
 func (c *EnvConfig) LoadFromEnvironment() error {
-	// Log Level - verschiedene Formate unterstützen
+	// Log Level - support different formats
 	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
 		c.Log.Level = logLevel
 	} else if logLevel := os.Getenv("log.level"); logLevel != "" {
 		c.Log.Level = logLevel
 	}
 
-	// Input Directory - verschiedene Formate unterstützen
+	// Input Directory - support different formats
 	if inputDir := os.Getenv("INPUT"); inputDir != "" {
 		c.Input = inputDir
 	} else if inputDir := os.Getenv("input"); inputDir != "" {
 		c.Input = inputDir
 	}
 
-	// File Stability Konfiguration - verschiedene Formate unterstützen
+	// File Stability Configuration - support different formats
 	c.loadFileStabilityFromEnv()
 
-	// Output Targets - neue flache Struktur
+	// Output Targets - flat structure
 	c.loadOutputTargetsFromEnv()
 
-	// Output Targets - YAML-Struktur aus Umgebungsvariablen
+	// Output Targets - YAML-structure from env
 	if len(c.Output) == 0 {
 		c.loadOutputFromYAMLEnv()
 	}
 
-	// Output Targets - alte JSON/YAML-Struktur als Fallback
+	// Output Targets - JSON/YAML structure as fallback
 	if len(c.Output) == 0 {
 		if outputTargetsStr := os.Getenv("OUTPUTS"); outputTargetsStr != "" {
-			// Zuerst als JSON versuchen
+			// 1. JSON
 			var targets []OutputTarget
 			if err := json.Unmarshal([]byte(outputTargetsStr), &targets); err == nil {
 				c.Output = targets
 			} else {
-				// Falls JSON fehlschlägt, als YAML versuchen
+				// If JSON fails, try as YAML
 				if err := yaml.Unmarshal([]byte(outputTargetsStr), &targets); err == nil {
 					c.Output = targets
 				}
@@ -69,11 +69,11 @@ func (c *EnvConfig) LoadFromEnvironment() error {
 	return nil
 }
 
-// loadOutputTargetsFromEnv lädt Output-Targets aus der neuen flachen ENV-Struktur
+// loadOutputTargetsFromEnv loads output targets from the new flat ENV structure
 func (c *EnvConfig) loadOutputTargetsFromEnv() {
 	targetMap := make(map[string]*OutputTarget)
 
-	// Iteriere durch alle Umgebungsvariablen und suche OUTPUT_X_* Pattern
+	// Iterate through all environment variables and search for OUTPUT_X_* patterns
 	for _, env := range os.Environ() {
 		if strings.HasPrefix(env, "OUTPUT_") {
 			parts := strings.SplitN(env, "=", 2)
@@ -86,11 +86,11 @@ func (c *EnvConfig) loadOutputTargetsFromEnv() {
 
 			// Parse OUTPUT_X_PATH Pattern
 			if strings.HasSuffix(key, "_PATH") {
-				// Extrahiere Index (z.B. "1" aus "OUTPUT_1_PATH")
+				// Extract index (e.g. ‘1’ from ‘OUTPUT_1_PATH’)
 				indexStr := strings.TrimPrefix(key, "OUTPUT_")
 				indexStr = strings.TrimSuffix(indexStr, "_PATH")
 
-				// Erstelle oder finde das entsprechende Target
+				// Create or find the appropriate target
 				if targetMap[indexStr] == nil {
 					targetMap[indexStr] = &OutputTarget{}
 				}
@@ -99,15 +99,15 @@ func (c *EnvConfig) loadOutputTargetsFromEnv() {
 		}
 	}
 
-	// Lade zusätzliche Eigenschaften für jedes Target
+	// Load additional properties for each target
 	for index, target := range targetMap {
 		c.loadTargetProperties(target, index)
 	}
 
-	// Konvertiere Map zu Slice
+	// Convert Map to Slice
 	var targets []OutputTarget
 	for _, target := range targetMap {
-		if target.Path != "" { // Nur Targets mit gesetztem Path hinzufügen
+		if target.Path != "" { // Add only targets with a set path
 			targets = append(targets, *target)
 		}
 	}
@@ -117,7 +117,7 @@ func (c *EnvConfig) loadOutputTargetsFromEnv() {
 	}
 }
 
-// loadTargetProperties lädt alle Eigenschaften für ein Target basierend auf seinem Index
+// loadTargetProperties loads all properties for a target based on its index
 func (c *EnvConfig) loadTargetProperties(target *OutputTarget, index string) {
 	prefix := "OUTPUT_" + index + "_"
 
@@ -282,13 +282,13 @@ func (c *EnvConfig) SetDefaults() {
 	}
 }
 
-// Validate überprüft die Konfiguration auf Vollständigkeit
+// Validate checks the configuration for completeness.
 func (c *EnvConfig) Validate() error {
 	if c.Input == "" {
 		return os.ErrInvalid
 	}
 
-	// Überprüfe ob mindestens ein Target konfiguriert ist
+	// Check that at least one target is configured.
 	if len(c.Output) == 0 {
 		return os.ErrInvalid
 	}
@@ -296,7 +296,7 @@ func (c *EnvConfig) Validate() error {
 	return nil
 }
 
-// GetLogLevel gibt das konfigurierte Log-Level zurück
+// GetLogLevel returns the configured log level.
 func (c *EnvConfig) GetLogLevel() string {
 	level := strings.ToUpper(c.Log.Level)
 	switch level {

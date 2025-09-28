@@ -8,22 +8,22 @@ import (
 	"sync"
 )
 
-// S3ClientManager verwaltet mehrere MinIO-Clients für verschiedene S3-Konfigurationen
+// S3ClientManager manages multiple MinIO clients for different S3 configurations
 type S3ClientManager struct {
 	clients map[string]*MinIO
 	mutex   sync.RWMutex
 }
 
-// NewS3ClientManager erstellt einen neuen S3ClientManager
+// NewS3ClientManager creates a new S3ClientManager
 func NewS3ClientManager() *S3ClientManager {
 	return &S3ClientManager{
 		clients: make(map[string]*MinIO),
 	}
 }
 
-// getClientKey erstellt einen eindeutigen Schlüssel für eine S3-Konfiguration
+// getClientKey creates a unique key for an S3 configuration
 func (scm *S3ClientManager) getClientKey(s3Config config.S3Config) string {
-	// Erstelle einen Hash aus der Konfiguration
+	// Create a hash from the configuration
 	data := fmt.Sprintf("%s:%s:%s:%t:%s",
 		s3Config.Endpoint,
 		s3Config.AccessKey,
@@ -33,11 +33,11 @@ func (scm *S3ClientManager) getClientKey(s3Config config.S3Config) string {
 	return fmt.Sprintf("%x", md5.Sum([]byte(data)))
 }
 
-// GetOrCreateClient gibt einen MinIO-Client für die gegebene S3-Konfiguration zurück
+// GetOrCreateClient returns a MinIO client for the given S3 configuration
 func (scm *S3ClientManager) GetOrCreateClient(s3Config config.S3Config) (*MinIO, error) {
 	key := scm.getClientKey(s3Config)
 
-	// Erst versuchen, einen bestehenden Client zu finden (Read-Lock)
+	// First try to find an existing client (read lock)
 	scm.mutex.RLock()
 	if client, exists := scm.clients[key]; exists {
 		scm.mutex.RUnlock()
@@ -45,16 +45,15 @@ func (scm *S3ClientManager) GetOrCreateClient(s3Config config.S3Config) (*MinIO,
 	}
 	scm.mutex.RUnlock()
 
-	// Client existiert nicht, also erstellen (Write-Lock)
+	// Client does not exist, so create (Write-Lock)
 	scm.mutex.Lock()
 	defer scm.mutex.Unlock()
 
-	// Nochmal prüfen, falls ein anderer Goroutine bereits erstellt hat
+	// Check again, in case another goroutine has already created it
 	if client, exists := scm.clients[key]; exists {
 		return client, nil
 	}
 
-	// Neuen Client erstellen
 	minioClient, err := NewMinIOConnection(
 		s3Config.Endpoint,
 		s3Config.AccessKey,
@@ -62,33 +61,32 @@ func (scm *S3ClientManager) GetOrCreateClient(s3Config config.S3Config) (*MinIO,
 		s3Config.SSL,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("fehler beim Erstellen des MinIO-Clients: %w", err)
+		return nil, fmt.Errorf("error creating MinIO client: %w", err)
 	}
 
-	// HealthCheck durchführen
+	// Perform health check
 	if err := minioClient.HealthCheck(); err != nil {
 		return nil, fmt.Errorf("minIO-HealthCheck fehlgeschlagen: %w", err)
 	}
 
-	// Client im Cache speichern
+	// Save client in cache
 	scm.clients[key] = minioClient
 
-	slog.Info("Neuer MinIO-Client erstellt und gecacht",
+	slog.Info("New MinIO client created and cached",
 		"endpoint", s3Config.Endpoint,
-		"key", key[:8]) // Nur die ersten 8 Zeichen des Schlüssels anzeigen
+		"key", key[:8]) // Only show first 8 characters of key
 
 	return minioClient, nil
 }
 
-// Close schließt alle MinIO-Clients (für cleanup)
+// Close closes all MinIO clients (for cleanup)
 func (scm *S3ClientManager) Close() {
 	scm.mutex.Lock()
 	defer scm.mutex.Unlock()
 
 	for key, client := range scm.clients {
 		if client != nil {
-			// MinIO-Go-Client hat keine explizite Close-Methode
-			// aber wir können ihn aus der Map entfernen
+			// MinIO Go client does not have an explicit close method, but we can remove it from the cache map
 			delete(scm.clients, key)
 		}
 	}
@@ -96,7 +94,7 @@ func (scm *S3ClientManager) Close() {
 	slog.Info("Alle MinIO-Clients geschlossen")
 }
 
-// GetActiveClientCount gibt die Anzahl der aktiven Clients zurück
+// GetActiveClientCount returns the number of active clients
 func (scm *S3ClientManager) GetActiveClientCount() int {
 	scm.mutex.RLock()
 	defer scm.mutex.RUnlock()

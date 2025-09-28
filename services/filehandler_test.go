@@ -426,7 +426,7 @@ func TestFileHandler_ProcessFile_UnknownTargetType_Extended(t *testing.T) {
 	}
 
 	// Check error message
-	if !strings.Contains(err.Error(), "unbekannter Zieltyp") {
+	if !strings.Contains(err.Error(), "unknown target type") {
 		t.Errorf("Error message should mention unknown target type: %v", err)
 	}
 }
@@ -553,7 +553,7 @@ func TestFileHandler_copyToS3_Structure_Extended(t *testing.T) {
 		t.Error("copyToS3() should return error when S3ClientManager is nil")
 	}
 
-	if !strings.Contains(err.Error(), "s3ClientManager nicht initialisiert") {
+	if !strings.Contains(err.Error(), "s3ClientManager not initialised") {
 		t.Errorf("Error should mention S3ClientManager not initialized: %v", err)
 	}
 }
