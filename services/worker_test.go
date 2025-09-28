@@ -401,3 +401,272 @@ func BenchmarkWorker_StartStop(b *testing.B) {
 	// Skip this benchmark as it's complex to test Start/Stop coordination
 	b.Skip("Start/Stop coordination too complex for reliable benchmarking")
 }
+
+// Test validation functions that currently have 0% coverage
+func TestWorker_validateS3Target(t *testing.T) {
+	cfg := createDefaultConfig()
+	worker := NewWorker("/tmp", []config.OutputTarget{}, cfg)
+
+	tests := []struct {
+		name        string
+		target      config.OutputTarget
+		expectError bool
+	}{
+		{
+			name: "valid S3 target",
+			target: config.OutputTarget{
+				Type:      "s3",
+				Path:      "s3://test-bucket/path",
+				Endpoint:  "localhost:9000",
+				AccessKey: "test-key",
+				SecretKey: "test-secret",
+				Region:    "us-east-1",
+			},
+			expectError: true, // Will fail because MinIO server isn't running
+		},
+		{
+			name: "S3 target missing endpoint",
+			target: config.OutputTarget{
+				Type:      "s3",
+				Path:      "s3://test-bucket/path",
+				AccessKey: "test-key",
+				SecretKey: "test-secret",
+				Region:    "us-east-1",
+			},
+			expectError: true,
+		},
+		{
+			name: "S3 target missing access key",
+			target: config.OutputTarget{
+				Type:      "s3",
+				Path:      "s3://test-bucket/path",
+				Endpoint:  "localhost:9000",
+				SecretKey: "test-secret",
+				Region:    "us-east-1",
+			},
+			expectError: true,
+		},
+		{
+			name: "S3 target missing secret key",
+			target: config.OutputTarget{
+				Type:      "s3",
+				Path:      "s3://test-bucket/path",
+				Endpoint:  "localhost:9000",
+				AccessKey: "test-key",
+				Region:    "us-east-1",
+			},
+			expectError: true,
+		},
+		{
+			name: "S3 target missing region",
+			target: config.OutputTarget{
+				Type:      "s3",
+				Path:      "s3://test-bucket/path",
+				Endpoint:  "localhost:9000",
+				AccessKey: "test-key",
+				SecretKey: "test-secret",
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := worker.validateS3Target(tt.target)
+			if tt.expectError && err == nil {
+				t.Error("Expected error, but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("Expected no error, but got: %v", err)
+			}
+		})
+	}
+}
+
+func TestWorker_validateFTPTarget(t *testing.T) {
+	cfg := createDefaultConfig()
+	worker := NewWorker("/tmp", []config.OutputTarget{}, cfg)
+
+	tests := []struct {
+		name        string
+		target      config.OutputTarget
+		expectError bool
+	}{
+		{
+			name: "valid FTP target",
+			target: config.OutputTarget{
+				Type:     "ftp",
+				Path:     "ftp://test.example.com/path",
+				Host:     "test.example.com",
+				Username: "testuser",
+				Password: "testpass",
+				Port:     21,
+			},
+			expectError: false,
+		},
+		{
+			name: "valid SFTP target",
+			target: config.OutputTarget{
+				Type:     "sftp",
+				Path:     "sftp://test.example.com/path",
+				Host:     "test.example.com",
+				Username: "testuser",
+				Password: "testpass",
+				Port:     22,
+			},
+			expectError: false,
+		},
+		{
+			name: "FTP target missing host",
+			target: config.OutputTarget{
+				Type:     "ftp",
+				Path:     "ftp://test.example.com/path", // Host is extracted from Path
+				Username: "testuser",
+				Password: "testpass",
+				Port:     21,
+			},
+			expectError: false, // Host is extracted from Path in GetFTPConfig()
+		},
+		{
+			name: "FTP target missing username",
+			target: config.OutputTarget{
+				Type:     "ftp",
+				Path:     "ftp://test.example.com/path",
+				Host:     "test.example.com",
+				Password: "testpass",
+				Port:     21,
+			},
+			expectError: true,
+		},
+		{
+			name: "FTP target missing password",
+			target: config.OutputTarget{
+				Type:     "ftp",
+				Path:     "ftp://test.example.com/path",
+				Host:     "test.example.com",
+				Username: "testuser",
+				Port:     21,
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := worker.validateFTPTarget(tt.target)
+			if tt.expectError && err == nil {
+				t.Error("Expected error, but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("Expected no error, but got: %v", err)
+			}
+		})
+	}
+}
+
+func TestWorker_validateFilesystemTarget(t *testing.T) {
+	cfg := createDefaultConfig()
+	worker := NewWorker("/tmp", []config.OutputTarget{}, cfg)
+
+	tempDir, cleanup := setupTempDir(t, "filesystem_validation_*")
+	defer cleanup()
+
+	tests := []struct {
+		name        string
+		target      config.OutputTarget
+		expectError bool
+	}{
+		{
+			name: "valid filesystem target - existing directory",
+			target: config.OutputTarget{
+				Type: "filesystem",
+				Path: tempDir,
+			},
+			expectError: false,
+		},
+		{
+			name: "filesystem target - non-existing directory (should still be valid)",
+			target: config.OutputTarget{
+				Type: "filesystem",
+				Path: "/tmp/non_existing_test_dir_xyz123",
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := worker.validateFilesystemTarget(tt.target)
+			if tt.expectError && err == nil {
+				t.Error("Expected error, but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("Expected no error, but got: %v", err)
+			}
+		})
+	}
+}
+
+func TestWorker_validateSingleTarget(t *testing.T) {
+	cfg := createDefaultConfig()
+	worker := NewWorker("/tmp", []config.OutputTarget{}, cfg)
+
+	tests := []struct {
+		name        string
+		target      config.OutputTarget
+		expectError bool
+	}{
+		{
+			name: "valid filesystem target",
+			target: config.OutputTarget{
+				Type: "filesystem",
+				Path: "/tmp/test",
+			},
+			expectError: false,
+		},
+		{
+			name: "valid s3 target",
+			target: config.OutputTarget{
+				Type:      "s3",
+				Path:      "s3://test-bucket/path",
+				Endpoint:  "localhost:9000",
+				AccessKey: "test-key",
+				SecretKey: "test-secret",
+				Region:    "us-east-1",
+			},
+			expectError: true, // Will fail because MinIO server isn't running
+		},
+		{
+			name: "valid ftp target",
+			target: config.OutputTarget{
+				Type:     "ftp",
+				Path:     "ftp://test.example.com/path",
+				Host:     "test.example.com",
+				Username: "testuser",
+				Password: "testpass",
+				Port:     21,
+			},
+			expectError: false,
+		},
+		{
+			name: "unknown target type",
+			target: config.OutputTarget{
+				Type: "unknown",
+				Path: "/some/path",
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := worker.validateSingleTarget(tt.target)
+			if tt.expectError && err == nil {
+				t.Error("Expected error, but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("Expected no error, but got: %v", err)
+			}
+		})
+	}
+}

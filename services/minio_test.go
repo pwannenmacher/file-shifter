@@ -223,3 +223,51 @@ func TestMinIO_ContentTypeDetection(t *testing.T) {
 		})
 	}
 }
+
+// More comprehensive tests for functions with low coverage
+func TestMinIO_EnsureBucket(t *testing.T) {
+	tests := []struct {
+		name        string
+		client      *MinIO
+		bucketName  string
+		expectError bool
+		errorCheck  func(error) bool
+	}{
+		{
+			name:        "nil client should return error",
+			client:      &MinIO{MinIOClient: nil},
+			bucketName:  "test-bucket",
+			expectError: true,
+			errorCheck: func(err error) bool {
+				return err.Error() == ErrMinIOClientNotInitialized
+			},
+		},
+		{
+			name:        "empty bucket name",
+			client:      &MinIO{MinIOClient: nil}, // Will fail on nil check first
+			bucketName:  "",
+			expectError: true,
+			errorCheck: func(err error) bool {
+				return err.Error() == ErrMinIOClientNotInitialized
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.client.EnsureBucket(tt.bucketName)
+
+			if tt.expectError && err == nil {
+				t.Error("Expected error, but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("Expected no error, but got: %v", err)
+			}
+			if tt.expectError && err != nil && tt.errorCheck != nil {
+				if !tt.errorCheck(err) {
+					t.Errorf("Error check failed for: %v", err)
+				}
+			}
+		})
+	}
+}

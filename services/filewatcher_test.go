@@ -2,6 +2,7 @@ package services
 
 import (
 	"file-shifter/config"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -592,3 +593,160 @@ func TestFileWatcher_IsHarmlessProcess(t *testing.T) {
 }
 
 // TestFileWatcher_Stop entfernt da er aufgrund von komplexen Goroutine-Interaktionen hängt
+
+// Test functions with 0% coverage to improve overall coverage
+func TestFileWatcher_hasRelevantProcesses(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "filewatcher_hasrelevant_*")
+	defer cleanup()
+
+	s3Manager := NewS3ClientManager()
+	defer s3Manager.Close()
+
+	targets := []config.OutputTarget{{Type: "filesystem", Path: tempDir}}
+	fileHandler := NewFileHandler(targets, s3Manager)
+
+	// Create a FileWatcher struct without starting it
+	watcher := &FileWatcher{
+		inputDir:        tempDir,
+		fileHandler:     fileHandler,
+		maxRetries:      3,
+		checkInterval:   100 * time.Millisecond,
+		stabilityPeriod: 200 * time.Millisecond,
+		stopChan:        make(chan bool),
+		lsofAvailable:   true, // Assume lsof is available for testing
+	}
+	// Don't start the watcher to avoid goroutine issues
+
+	testFilePath := "/tmp/test-file.txt"
+
+	tests := []struct {
+		name       string
+		lsofOutput string
+		expected   bool
+	}{
+		{
+			name:       "empty output",
+			lsofOutput: "",
+			expected:   false,
+		},
+		{
+			name:       "header only",
+			lsofOutput: "COMMAND     PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME",
+			expected:   false,
+		},
+		{
+			name: "with relevant process",
+			lsofOutput: `COMMAND     PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+vim        1234 user    3r   REG    8,1      100  12345 /tmp/test-file.txt`,
+			expected: true,
+		},
+		{
+			name: "with system process only (should be harmless)",
+			lsofOutput: `COMMAND     PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+mds        1234 user    3r   REG    8,1      100  12345 /tmp/test-file.txt`,
+			expected: false,
+		},
+		{
+			name: "own process should be ignored",
+			lsofOutput: fmt.Sprintf(`COMMAND     PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+myapp      %d user    3r   REG    8,1      100  12345 /tmp/test-file.txt`, os.Getpid()),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := watcher.hasRelevantProcesses(testFilePath, tt.lsofOutput)
+			if result != tt.expected {
+				t.Errorf("hasRelevantProcesses() = %v, expected %v for output: %s", result, tt.expected, tt.lsofOutput)
+			}
+		})
+	}
+}
+
+func TestFileWatcher_isRelevantProcess(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "filewatcher_isrelevant_*")
+	defer cleanup()
+
+	s3Manager := NewS3ClientManager()
+	defer s3Manager.Close()
+
+	targets := []config.OutputTarget{{Type: "filesystem", Path: tempDir}}
+	fileHandler := NewFileHandler(targets, s3Manager)
+
+	// Create a FileWatcher struct without starting it
+	watcher := &FileWatcher{
+		inputDir:        tempDir,
+		fileHandler:     fileHandler,
+		maxRetries:      3,
+		checkInterval:   100 * time.Millisecond,
+		stabilityPeriod: 200 * time.Millisecond,
+		stopChan:        make(chan bool),
+		lsofAvailable:   true, // Assume lsof is available for testing
+	}
+	// Don't start the watcher to avoid goroutine issues
+
+	testFilePath := "/tmp/test-file.txt"
+	ownPID := os.Getpid()
+
+	tests := []struct {
+		name     string
+		line     string
+		expected bool
+	}{
+		{
+			name:     "empty line",
+			line:     "",
+			expected: false,
+		},
+		{
+			name:     "insufficient fields",
+			line:     "vim",
+			expected: false,
+		},
+		{
+			name:     "relevant process",
+			line:     "vim        1234 user    3r   REG    8,1      100  12345 /tmp/test-file.txt",
+			expected: true,
+		},
+		{
+			name:     "system process (mds) should be harmless",
+			line:     "mds        1234 user    3r   REG    8,1      100  12345 /tmp/test-file.txt",
+			expected: false,
+		},
+		{
+			name:     "system process (finder) should be harmless",
+			line:     "Finder     1234 user    3r   REG    8,1      100  12345 /tmp/test-file.txt",
+			expected: false,
+		},
+		{
+			name:     "cat process should be considered relevant",
+			line:     "cat        1234 user    3r   REG    8,1      100  12345 /tmp/test-file.txt",
+			expected: true,
+		},
+		{
+			name:     "tail process should be considered relevant",
+			line:     "tail       1234 user    3r   REG    8,1      100  12345 /tmp/test-file.txt",
+			expected: true,
+		},
+		{
+			name:     "own process should be ignored",
+			line:     fmt.Sprintf("myapp      %d user    3r   REG    8,1      100  12345 /tmp/test-file.txt", ownPID),
+			expected: false,
+		},
+		{
+			name:     "unknown process should be considered relevant",
+			line:     "unknownapp 5678 user    3r   REG    8,1      100  12345 /tmp/test-file.txt",
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := watcher.isRelevantProcess(testFilePath, tt.line)
+			if result != tt.expected {
+				t.Errorf("isRelevantProcess(%q) = %v, expected %v", tt.line, result, tt.expected)
+			}
+		})
+	}
+}
