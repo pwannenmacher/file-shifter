@@ -14,34 +14,33 @@ import (
 )
 
 func loadEnvYaml() (*config.EnvConfig, error) {
-	// Prüfe welche Dateien vorhanden sind
+	// Check which files are available
 	yamlExists := fileExists("env.yaml")
 	ymlExists := fileExists("env.yml")
 
-	// Fehler wenn beide Dateien vorhanden sind
+	// Error if both files exist
 	if yamlExists && ymlExists {
-		return nil, fmt.Errorf("konflikt: sowohl env.yaml als auch env.yml sind vorhanden, bitte verwende nur eine der beiden Dateien")
+		return nil, fmt.Errorf("conflict: both env.yaml and env.yml are present, please use only one of the two files")
 	}
 
-	// Bestimme welche Datei geladen werden soll
+	// Determine which file should be loaded
 	var configFile string
 	if yamlExists {
 		configFile = "env.yaml"
 	} else if ymlExists {
 		configFile = "env.yml"
 	} else {
-		return nil, fmt.Errorf("keine Konfigurationsdatei gefunden (env.yaml oder env.yml)")
+		return nil, fmt.Errorf("No configuration file found (env.yaml or env.yml)")
 	}
 
-	// Lade die Datei
 	data, err := os.ReadFile(configFile)
 	if err != nil {
-		return nil, fmt.Errorf("fehler beim Lesen von %s: %w", configFile, err)
+		return nil, fmt.Errorf("error reading %s: %w", configFile, err)
 	}
 
 	var cfg config.EnvConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("fehler beim Parsen von %s: %w", configFile, err)
+		return nil, fmt.Errorf("error parsing %s: %w", configFile, err)
 	}
 
 	return &cfg, nil
@@ -73,20 +72,20 @@ func setupLogger(cfg *config.EnvConfig) {
 }
 
 func main() {
-	// 1. Command Line Arguments parsen
+	// 1. Parsing command line arguments
 	cliCfg := config.ParseCLI()
 
-	// Validiere CLI-Konfiguration
+	// Validate CLI configuration
 	if err := cliCfg.Validate(); err != nil {
 		fmt.Fprintf(os.Stderr, "Fehler in Kommandozeilen-Argumenten: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 2. Reihenfolge der Konfiguration:
-	// - env.yaml oder env.yml laden (falls vorhanden)
-	// - .env laden (falls vorhanden)
-	// - Umgebungsvariablen laden
-	// - CLI-Parameter anwenden (überschreibt alles andere)
+	// 2. Configuration order:
+	// - Load env.yaml or env.yml (if available)
+	// - Load .env (if available)
+	// - Load environment variables
+	// - Apply CLI parameters (overrides everything else)
 
 	cfg, err := loadEnvYaml()
 	if err != nil {
@@ -94,26 +93,25 @@ func main() {
 		cfg = &config.EnvConfig{} // leere Konfiguration
 	}
 
-	// .env laden (optional)
 	_ = godotenv.Load()
 
-	// Defaults setzen
+	// Set defaults
 	cfg.SetDefaults()
 
-	// Umgebungsvariablen laden (überschreibt YAML und .env)
+	// Load environment variables (overwrites YAML and .env)
 	err = cfg.LoadFromEnvironment()
 	if err != nil {
-		fmt.Println("Fehler beim Laden der Umgebungsvariablen:", err)
+		fmt.Println("Error loading environment variables:", err)
 	}
 
-	// CLI-Parameter anwenden (höchste Priorität)
+	// Apply CLI parameters (highest priority)
 	err = cliCfg.ApplyToCfg(cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Fehler beim Anwenden der CLI-Parameter: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Error applying CLI parameters: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Logger-Konfiguration
+	// Logger configuration
 	setupLogger(cfg)
 
 	// Input Directory
@@ -122,7 +120,7 @@ func main() {
 	// Output Targets
 	outputTargets := cfg.Output
 
-	// Standard-Default falls keine Targets konfiguriert
+	// Standard default if no targets are configured
 	if len(outputTargets) == 0 {
 		outputTargets = []config.OutputTarget{
 			{
@@ -131,16 +129,16 @@ func main() {
 			},
 		}
 		cfg.Output = outputTargets // Auch in cfg setzen für Validierung
-		slog.Info("Keine Output-Konfiguration gefunden - verwende Standard-Default", "target", "./output")
+		slog.Info("No output configuration found - use standard default", "target", "./output")
 	}
 
-	// Konfiguration validieren (nach dem Setzen der Standard-Targets)
+	// Validate configuration (after setting the default targets)
 	if err := cfg.Validate(); err != nil {
-		slog.Error("Ungültige Konfiguration", "error", err)
+		slog.Error("Invalid configuration", "error", err)
 		os.Exit(1)
 	}
 
-	// Worker initialisieren und starten
+	// Initialise and start workers
 	workerService := services.NewWorker(inputDir, outputTargets, cfg)
 
 	// Graceful Shutdown Handler
@@ -149,10 +147,10 @@ func main() {
 
 	go func() {
 		<-sigChan
-		slog.Info("Shutdown-Signal empfangen...")
+		slog.Info("Shutdown signal received...")
 		workerService.Stop()
 	}()
 
-	// Worker starten (blockiert bis Stop aufgerufen wird)
+	// Start worker (blocked until Stop is called)
 	workerService.Start()
 }
