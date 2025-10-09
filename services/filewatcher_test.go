@@ -50,7 +50,7 @@ func TestNewFileWatcher(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			watcher, err := NewFileWatcher(tt.inputDir, fileHandler, tt.maxRetries, tt.checkInterval, tt.stabilityPeriod)
+			watcher, err := NewFileWatcher(tt.inputDir, fileHandler, tt.maxRetries, tt.checkInterval, tt.stabilityPeriod, 4, 100)
 
 			if tt.expectError {
 				if err == nil {
@@ -121,7 +121,7 @@ func TestFileWatcher_AddRecursiveWatcher(t *testing.T) {
 	targets := []config.OutputTarget{{Type: "filesystem", Path: tempDir}}
 	fileHandler := NewFileHandler(targets, s3Manager)
 
-	watcher, err := NewFileWatcher(tempDir, fileHandler, 3, 100*time.Millisecond, 200*time.Millisecond)
+	watcher, err := NewFileWatcher(tempDir, fileHandler, 3, 100*time.Millisecond, 200*time.Millisecond, 4, 100)
 	if err != nil {
 		t.Fatalf("Fehler beim Erstellen des FileWatchers: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestFileWatcher_HandleEvent(t *testing.T) {
 	targets := []config.OutputTarget{{Type: "filesystem", Path: tempDir}}
 	fileHandler := NewFileHandler(targets, s3Manager)
 
-	watcher, err := NewFileWatcher(tempDir, fileHandler, 1, 50*time.Millisecond, 100*time.Millisecond)
+	watcher, err := NewFileWatcher(tempDir, fileHandler, 1, 50*time.Millisecond, 100*time.Millisecond, 4, 100)
 	if err != nil {
 		t.Fatalf("Fehler beim Erstellen des FileWatchers: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestFileWatcher_ProcessFile(t *testing.T) {
 	targets := []config.OutputTarget{{Type: "filesystem", Path: tempDir}}
 	fileHandler := NewFileHandler(targets, s3Manager)
 
-	watcher, err := NewFileWatcher(tempDir, fileHandler, 1, 10*time.Millisecond, 20*time.Millisecond)
+	watcher, err := NewFileWatcher(tempDir, fileHandler, 1, 10*time.Millisecond, 20*time.Millisecond, 4, 100)
 	if err != nil {
 		t.Fatalf("Fehler beim Erstellen des FileWatchers: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestFileWatcher_ProcessExistingFiles(t *testing.T) {
 	targets := []config.OutputTarget{{Type: "filesystem", Path: tempDir}}
 	fileHandler := NewFileHandler(targets, s3Manager)
 
-	watcher, err := NewFileWatcher(tempDir, fileHandler, 1, 10*time.Millisecond, 20*time.Millisecond)
+	watcher, err := NewFileWatcher(tempDir, fileHandler, 1, 10*time.Millisecond, 20*time.Millisecond, 4, 100)
 	if err != nil {
 		t.Fatalf("Fehler beim Erstellen des FileWatchers: %v", err)
 	}
@@ -381,7 +381,7 @@ func TestFileWatcher_WaitForCompleteFile(t *testing.T) {
 	targets := []config.OutputTarget{{Type: "filesystem", Path: tempDir}}
 	fileHandler := NewFileHandler(targets, s3Manager)
 
-	watcher, err := NewFileWatcher(tempDir, fileHandler, 2, 10*time.Millisecond, 20*time.Millisecond)
+	watcher, err := NewFileWatcher(tempDir, fileHandler, 2, 10*time.Millisecond, 20*time.Millisecond, 4, 100)
 	if err != nil {
 		t.Fatalf("Fehler beim Erstellen des FileWatchers: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestFileWatcher_IsFileStable(t *testing.T) {
 	targets := []config.OutputTarget{{Type: "filesystem", Path: tempDir}}
 	fileHandler := NewFileHandler(targets, s3Manager)
 
-	watcher, err := NewFileWatcher(tempDir, fileHandler, 3, 100*time.Millisecond, 200*time.Millisecond)
+	watcher, err := NewFileWatcher(tempDir, fileHandler, 3, 100*time.Millisecond, 200*time.Millisecond, 4, 100)
 	if err != nil {
 		t.Fatalf("Fehler beim Erstellen des FileWatchers: %v", err)
 	}
@@ -482,7 +482,7 @@ func TestFileWatcher_CanOpenExclusively(t *testing.T) {
 	targets := []config.OutputTarget{{Type: "filesystem", Path: tempDir}}
 	fileHandler := NewFileHandler(targets, s3Manager)
 
-	watcher, err := NewFileWatcher(tempDir, fileHandler, 3, 100*time.Millisecond, 200*time.Millisecond)
+	watcher, err := NewFileWatcher(tempDir, fileHandler, 3, 100*time.Millisecond, 200*time.Millisecond, 4, 100)
 	if err != nil {
 		t.Fatalf("Fehler beim Erstellen des FileWatchers: %v", err)
 	}
@@ -524,7 +524,7 @@ func TestFileWatcher_IsFileOpenByOtherProcess(t *testing.T) {
 	targets := []config.OutputTarget{{Type: "filesystem", Path: tempDir}}
 	fileHandler := NewFileHandler(targets, s3Manager)
 
-	watcher, err := NewFileWatcher(tempDir, fileHandler, 3, 100*time.Millisecond, 200*time.Millisecond)
+	watcher, err := NewFileWatcher(tempDir, fileHandler, 3, 100*time.Millisecond, 200*time.Millisecond, 4, 100)
 	if err != nil {
 		t.Fatalf("Fehler beim Erstellen des FileWatchers: %v", err)
 	}
@@ -559,7 +559,7 @@ func TestFileWatcher_IsHarmlessProcess(t *testing.T) {
 	targets := []config.OutputTarget{{Type: "filesystem", Path: "/tmp"}}
 	fileHandler := NewFileHandler(targets, s3Manager)
 
-	watcher, err := NewFileWatcher("/tmp", fileHandler, 3, 100*time.Millisecond, 200*time.Millisecond)
+	watcher, err := NewFileWatcher("/tmp", fileHandler, 3, 100*time.Millisecond, 200*time.Millisecond, 4, 100)
 	if err != nil {
 		t.Fatalf("Fehler beim Erstellen des FileWatchers: %v", err)
 	}

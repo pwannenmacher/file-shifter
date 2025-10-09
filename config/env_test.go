@@ -867,8 +867,8 @@ func TestEnvConfig_SetDefaults_FileStability(t *testing.T) {
 				StabilityPeriod int
 			}{
 				MaxRetries:      30,
-				CheckInterval:   1,
-				StabilityPeriod: 1,
+				CheckInterval:   1000,
+				StabilityPeriod: 1000,
 			},
 			description: "Should set default file stability values",
 		},
@@ -890,9 +890,9 @@ func TestEnvConfig_SetDefaults_FileStability(t *testing.T) {
 				CheckInterval   int
 				StabilityPeriod int
 			}{
-				MaxRetries:      50, // Preserved
-				CheckInterval:   1,  // Defaulted
-				StabilityPeriod: 5,  // Preserved
+				MaxRetries:      50,   // Preserved
+				CheckInterval:   1000, // Defaulted to 1000ms
+				StabilityPeriod: 5,    // Preserved
 			},
 			description: "Should preserve existing non-zero values and default zero ones",
 		},
