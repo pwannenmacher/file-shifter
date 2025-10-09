@@ -17,10 +17,14 @@ type EnvConfig struct {
 	Input         string       `yaml:"input"`
 	Output        OutputConfig `yaml:"output"`
 	FileStability struct {
-		MaxRetries      int `yaml:"max-retries"`      // Maximum Anzahl Wiederholungen
-		CheckInterval   int `yaml:"check-interval"`   // Check interval in seconds
-		StabilityPeriod int `yaml:"stability-period"` // Stability check in seconds
+		MaxRetries      int `yaml:"max-retries"`      // Maximum number of repetitions in case of file instability
+		CheckInterval   int `yaml:"check-interval"`   // Check interval in milliseconds
+		StabilityPeriod int `yaml:"stability-period"` // Period during which a file must remain stable in milliseconds
 	} `yaml:"file-stability"`
+	WorkerPool struct {
+		Workers   int `yaml:"workers"`    // Number of parallel workers
+		QueueSize int `yaml:"queue-size"` // Size of the file queue
+	} `yaml:"worker-pool"`
 }
 
 // LoadFromEnvironment loads the configuration from environment variables
@@ -41,6 +45,9 @@ func (c *EnvConfig) LoadFromEnvironment() error {
 
 	// File Stability Configuration - support different formats
 	c.loadFileStabilityFromEnv()
+
+	// Worker Pool Configuration - support different formats
+	c.loadWorkerPoolFromEnv()
 
 	// Output Targets - flat structure
 	c.loadOutputTargetsFromEnv()
@@ -197,6 +204,35 @@ func (c *EnvConfig) loadFileStabilityFromEnv() {
 	}
 }
 
+// loadWorkerPoolFromEnv lädt die Worker-Pool-Konfiguration aus Umgebungsvariablen
+func (c *EnvConfig) loadWorkerPoolFromEnv() {
+	// Alte Struktur (WORKER_POOL_*)
+	if workers := os.Getenv("WORKER_POOL_WORKERS"); workers != "" {
+		if val, err := strconv.Atoi(workers); err == nil && val > 0 {
+			c.WorkerPool.Workers = val
+		}
+	}
+
+	if queueSize := os.Getenv("WORKER_POOL_QUEUE_SIZE"); queueSize != "" {
+		if val, err := strconv.Atoi(queueSize); err == nil && val > 0 {
+			c.WorkerPool.QueueSize = val
+		}
+	}
+
+	// Neue Struktur (worker_pool.*)
+	if workers := os.Getenv("worker_pool.workers"); workers != "" {
+		if val, err := strconv.Atoi(workers); err == nil && val > 0 {
+			c.WorkerPool.Workers = val
+		}
+	}
+
+	if queueSize := os.Getenv("worker_pool.queue_size"); queueSize != "" {
+		if val, err := strconv.Atoi(queueSize); err == nil && val > 0 {
+			c.WorkerPool.QueueSize = val
+		}
+	}
+}
+
 // loadOutputFromYAMLEnv lädt Output-Targets aus YAML-strukturierten Umgebungsvariablen
 func (c *EnvConfig) loadOutputFromYAMLEnv() {
 	var targets []OutputTarget
@@ -275,10 +311,17 @@ func (c *EnvConfig) SetDefaults() {
 		c.FileStability.MaxRetries = 30 // 30 Versuche
 	}
 	if c.FileStability.CheckInterval == 0 {
-		c.FileStability.CheckInterval = 1 // 1 Sekunde
+		c.FileStability.CheckInterval = 1000 // 1000ms = 1 Sekunde
 	}
 	if c.FileStability.StabilityPeriod == 0 {
-		c.FileStability.StabilityPeriod = 1 // 1 Sekunde
+		c.FileStability.StabilityPeriod = 1000 // 1000ms = 1 Sekunde
+	}
+	// Worker Pool Defaults
+	if c.WorkerPool.Workers == 0 {
+		c.WorkerPool.Workers = 4 // 4 parallele Worker
+	}
+	if c.WorkerPool.QueueSize == 0 {
+		c.WorkerPool.QueueSize = 100 // 100 Dateien in der Warteschlange
 	}
 }
 

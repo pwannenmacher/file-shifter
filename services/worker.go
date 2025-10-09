@@ -46,10 +46,10 @@ func NewWorker(dir string, targets []config.OutputTarget, cfg *config.EnvConfig)
 	w.FileHandler = NewFileHandler(targets, w.S3ClientManager)
 
 	maxRetries := cfg.FileStability.MaxRetries
-	checkInterval := time.Duration(cfg.FileStability.CheckInterval) * time.Second
-	stabilityPeriod := time.Duration(cfg.FileStability.StabilityPeriod) * time.Second
+	checkInterval := time.Duration(cfg.FileStability.CheckInterval) * time.Millisecond
+	stabilityPeriod := time.Duration(cfg.FileStability.StabilityPeriod) * time.Millisecond
 
-	fileWatcher, err := NewFileWatcher(dir, w.FileHandler, maxRetries, checkInterval, stabilityPeriod)
+	fileWatcher, err := NewFileWatcher(dir, w.FileHandler, maxRetries, checkInterval, stabilityPeriod, cfg.WorkerPool.Workers, cfg.WorkerPool.QueueSize)
 	if err != nil {
 		slog.Error("Error initializing file watcher", "err", err)
 		os.Exit(1)

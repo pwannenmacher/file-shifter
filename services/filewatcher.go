@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,9 +25,17 @@ type FileWatcher struct {
 	checkInterval   time.Duration
 	stabilityPeriod time.Duration
 	lsofAvailable   bool
+	// Worker pool for parallel processing
+	fileQueue   chan string
+	workerCount int
+	workers     sync.WaitGroup
+	// Queue monitoring
+	queueCapacity      int
+	queueWarningLogged bool
+	queueMutex         sync.Mutex
 }
 
-func NewFileWatcher(inputDir string, fileHandler *FileHandler, maxRetries int, checkInterval, stabilityPeriod time.Duration) (*FileWatcher, error) {
+func NewFileWatcher(inputDir string, fileHandler *FileHandler, maxRetries int, checkInterval, stabilityPeriod time.Duration, workerCount, queueSize int) (*FileWatcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -40,16 +49,19 @@ func NewFileWatcher(inputDir string, fileHandler *FileHandler, maxRetries int, c
 		maxRetries:      maxRetries,
 		checkInterval:   checkInterval,
 		stabilityPeriod: stabilityPeriod,
+		fileQueue:       make(chan string, queueSize), // Configurable queue size
+		workerCount:     workerCount,                  // Configurable worker count
+		queueCapacity:   queueSize,                    // Store capacity for monitoring
 	}
 
-	// lsof-Verfügbarkeit prüfen
+	// Check lsof availability
 	fw.lsofAvailable = checkLsofAvailable()
 
 	return fw, nil
 }
 
 func (fw *FileWatcher) Start() error {
-	// Watcher für Input-Directory registrieren
+	// Register watcher for input directory
 	err := fw.addRecursiveWatcher(fw.inputDir)
 	if err != nil {
 		return err
@@ -57,8 +69,11 @@ func (fw *FileWatcher) Start() error {
 
 	slog.Info("File-Watcher gestartet", "directory", fw.inputDir)
 
-	// Verarbeite bereits vorhandene Dateien beim Start
+	// Process existing files at startup
 	go fw.processExistingFiles()
+
+	// Start worker pool
+	fw.startWorkers()
 
 	// Event-Loop
 	for {
@@ -83,8 +98,14 @@ func (fw *FileWatcher) Start() error {
 }
 
 func (fw *FileWatcher) Stop() {
+	close(fw.fileQueue) // Close the queue to terminate workers
+	fw.workers.Wait()   // Wait until all workers have finished
 	fw.stopChan <- true
-	fw.watcher.Close()
+	err := fw.watcher.Close()
+	if err != nil {
+		slog.Error("Error closing file watcher", "error", err)
+	}
+	slog.Info("File-Watcher vollständig gestoppt")
 }
 
 func (fw *FileWatcher) addRecursiveWatcher(root string) error {
@@ -148,8 +169,72 @@ func (fw *FileWatcher) processFile(filePath string) {
 		return
 	}
 
-	if err := fw.fileHandler.ProcessFile(filePath, fw.inputDir); err != nil {
-		slog.Error("Error processing file", "file", filePath, "error", err)
+	// Enqueue file for processing with queue monitoring
+	fw.enqueueFileWithMonitoring(filePath)
+}
+
+// enqueueFileWithMonitoring fügt eine Datei zur Warteschlange hinzu und überwacht die Kapazität
+func (fw *FileWatcher) enqueueFileWithMonitoring(filePath string) {
+	// Datei zur Warteschlange hinzufügen
+	fw.fileQueue <- filePath
+
+	// Queue-Monitoring nach dem Hinzufügen
+	fw.checkQueueCapacity()
+}
+
+// checkQueueCapacity überwacht die Queue-Füllung und gibt Warnungen aus
+func (fw *FileWatcher) checkQueueCapacity() {
+	fw.queueMutex.Lock()
+	defer fw.queueMutex.Unlock()
+
+	currentSize := len(fw.fileQueue)
+	capacity := fw.queueCapacity
+	fillPercentage := float64(currentSize) / float64(capacity) * 100
+
+	// 80% Schwellwert für Warnung
+	warningThreshold := 80.0
+
+	if fillPercentage >= warningThreshold {
+		// Warnung ausgeben, wenn noch nicht geloggt
+		if !fw.queueWarningLogged {
+			slog.Warn("FileQueue-Kapazität kritisch",
+				"current_size", currentSize,
+				"capacity", capacity,
+				"fill_percentage", fmt.Sprintf("%.1f%%", fillPercentage),
+				"message", "Die Datei-Warteschlange ist zu 80% oder mehr gefüllt. Erwägen Sie, mehr Worker zu konfigurieren oder die Queue-Größe zu erhöhen.")
+			fw.queueWarningLogged = true
+		}
+	} else {
+		// Entwarnung ausgeben, wenn Warnung vorher aktiv war
+		if fw.queueWarningLogged {
+			slog.Info("FileQueue-Kapazität normalisiert",
+				"current_size", currentSize,
+				"capacity", capacity,
+				"fill_percentage", fmt.Sprintf("%.1f%%", fillPercentage),
+				"message", "Die Datei-Warteschlange ist wieder unter 80% Kapazität.")
+			fw.queueWarningLogged = false
+		}
+	}
+}
+
+func (fw *FileWatcher) worker() {
+	defer fw.workers.Done()
+
+	for filePath := range fw.fileQueue {
+		if err := fw.fileHandler.ProcessFile(filePath, fw.inputDir); err != nil {
+			slog.Error("Error processing file", "file", filePath, "error", err)
+		}
+
+		// Queue-Monitoring nach dem Verarbeiten einer Datei
+		fw.checkQueueCapacity()
+	}
+}
+
+func (fw *FileWatcher) startWorkers() {
+	slog.Info("Starte Worker-Pool", "anzahl", fw.workerCount)
+	fw.workers.Add(fw.workerCount)
+	for i := 0; i < fw.workerCount; i++ {
+		go fw.worker()
 	}
 }
 
@@ -179,27 +264,26 @@ func (fw *FileWatcher) waitForCompleteFile(filePath string) error {
 	slog.Debug("Check file completeness", "file", filePath)
 
 	for retry := 0; retry < fw.maxRetries; retry++ {
-		// 1. Datei-Stabilitätsprüfung
+		// 1. File stability check
 		if !fw.isFileStable(filePath, fw.stabilityPeriod) {
 			slog.Debug("File is not yet stable - please continue to wait", "file", filePath, "attempt", retry+1)
 			continue
 		}
 
-		// 2. Exklusiver Zugriff Test
+		// 2. Exclusive access test
 		if !fw.canOpenExclusively(filePath) {
 			slog.Debug("File is still open in another process", "file", filePath, "attempt", retry+1)
 			time.Sleep(fw.checkInterval)
 			continue
 		}
 
-		// 3. lsof-Prüfung (nur Unix/macOS, wenn verfügbar)
+		// 3. lsof check (Unix/macOS only, if available)
 		if runtime.GOOS != "windows" && fw.lsofAvailable && fw.isFileOpenByOtherProcess(filePath) {
 			slog.Debug("File is still open according to lsof", "file", filePath, "attempt", retry+1)
 			time.Sleep(fw.checkInterval)
 			continue
 		}
 
-		// Alle Prüfungen bestanden
 		slog.Info("File is complete and ready for processing", "file", filePath, "attempt", retry+1)
 		return nil
 	}
@@ -207,7 +291,7 @@ func (fw *FileWatcher) waitForCompleteFile(filePath string) error {
 	return fmt.Errorf("file is still incomplete after %d attempts: %s", fw.maxRetries, filePath)
 }
 
-// isFileStable prüft ob sich Dateigröße und ModTime über checkDuration nicht ändern
+// isFileStable checks whether file size and ModTime do not change via checkDuration
 func (fw *FileWatcher) isFileStable(filePath string, checkDuration time.Duration) bool {
 	initialStat, err := os.Stat(filePath)
 	if err != nil {

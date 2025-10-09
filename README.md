@@ -166,8 +166,12 @@ OUTPUT_5_PASSWORD=secret123
 
 # File Stability Configuration
 FILE_STABILITY_MAX_RETRIES=30
-FILE_STABILITY_CHECK_INTERVAL=1
-FILE_STABILITY_PERIOD=1
+FILE_STABILITY_CHECK_INTERVAL=100
+FILE_STABILITY_PERIOD=200
+
+# Worker pool configuration for parallel processing
+WORKER_POOL_WORKERS=8
+WORKER_POOL_QUEUE_SIZE=100
 ```
 
 **JSON structure:**
@@ -196,8 +200,12 @@ FTP_PASSWORD=secret123
 
 # File Stability Configuration
 FILE_STABILITY_MAX_RETRIES=30
-FILE_STABILITY_CHECK_INTERVAL=1
-FILE_STABILITY_PERIOD=1
+FILE_STABILITY_CHECK_INTERVAL=100
+FILE_STABILITY_PERIOD=200
+
+# Worker pool configuration for parallel processing
+WORKER_POOL_WORKERS=8
+WORKER_POOL_QUEUE_SIZE=200
 ```
 
 **YAML Configuration (env.yaml):**
@@ -240,11 +248,16 @@ output:
     username: your-username
     password: your-password
 
-# File Stability Configuration  
+# File Stability Configuration
 file-stability:
-  max-retries: 30      # Maximum number of retries (Default: 30)
-  check-interval: 1    # Check interval in seconds (Default: 1) 
-  stability-period: 1  # Stability check in seconds (Default: 1)
+  max-retries: 30      # Maximum number of repetitions (default: 30)
+  check-interval: 100  # Check interval in milliseconds (default: 1000 ms = 1 s)
+  stability-period: 200  # Stability check in milliseconds (default: 1000 ms = 1 s)
+
+# Worker pool configuration for parallel processing
+worker-pool:
+  workers: 8           # Number of parallel workers (default: 4)
+  queue-size: 200      # Size of the file queue (default: 100)
 ```
 
 #### Practical Examples
