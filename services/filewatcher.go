@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -322,13 +323,20 @@ func (fw *FileWatcher) isFileStable(filePath string, checkDuration time.Duration
 	return stable
 }
 
-// canOpenExclusively versucht exklusiven Zugriff auf die Datei zu bekommen
+// safeCloseFile closes a file safely and logs errors
+func (fw *FileWatcher) safeCloseFile(file *os.File, filePath string) {
+	if err := file.Close(); err != nil {
+		slog.Error("Error closing file", "file", filePath, "error", err)
+	}
+}
+
+// canOpenExclusively attempts to gain exclusive access to the file
 func (fw *FileWatcher) canOpenExclusively(filePath string) bool {
 	var file *os.File
 	var err error
 
 	if runtime.GOOS == "windows" {
-		// Windows: Versuche exklusiven Zugriff
+		// Windows: Attempt exclusive access
 		file, err = os.OpenFile(filePath, os.O_RDONLY, 0)
 		if err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "being used by another process") {
@@ -338,24 +346,26 @@ func (fw *FileWatcher) canOpenExclusively(filePath string) bool {
 			return true
 		}
 	} else {
-		// Unix/Linux/macOS: Versuche mit flock
+		// Unix/Linux/macOS: Try using flock
 		file, err = os.Open(filePath)
 		if err != nil {
 			return false
 		}
 
-		// Versuche ein non-blocking exclusive lock
+		// Attempt a non-blocking exclusive lock
 		err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err != nil {
-			file.Close()
+			fw.safeCloseFile(file, filePath)
 			return false
 		}
-		// Lock wieder freigeben
-		syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		// Release exclusive lock
+		if err := syscall.Flock(int(file.Fd()), syscall.LOCK_UN); err != nil {
+			slog.Error("Error unlocking file", "file", filePath, "error", err)
+		}
 	}
 
 	if file != nil {
-		file.Close()
+		fw.safeCloseFile(file, filePath)
 	}
 	return true
 }
@@ -399,7 +409,8 @@ func (fw *FileWatcher) executeLsof(filePath string) (string, error) {
 
 	if err != nil {
 		// lsof exit code 1 means ‘no open files found’ – that's good.
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			if exitErr.ExitCode() == 1 {
 				return "", fmt.Errorf("no open files")
 			}
