@@ -2,27 +2,27 @@
 
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=pwannenmacher_file-shifter&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=pwannenmacher_file-shifter) [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=pwannenmacher_file-shifter&metric=coverage)](https://sonarcloud.io/summary/new_code?id=pwannenmacher_file-shifter) [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=pwannenmacher_file-shifter&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=pwannenmacher_file-shifter) [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=pwannenmacher_file-shifter&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=pwannenmacher_file-shifter)
 
-A robust file transfer service that automatically copies files from an input directory to multiple destinations while
-preserving the original file structure.
+File transfer service that automatically copies files from an input directory to multiple destinations while preserving
+the original file structure.
 
 ## Overview
 
 File Shifter monitors a defined input directory and automatically copies new files to any number of configured
 destinations. After successful transfer to all destinations, the original file is automatically removed.
 
-### ✨ Key Features
+### Features
 
-- **🎯 Multi-Target Support**: Simultaneous copying to multiple destinations
-- **📁 Supported destination types**:
-    - Local filesystem
-    - S3-compatible storage (MinIO, AWS S3, etc.)
-    - SFTP/FTP servers
-- **🔄 Real-time processing**: File system watcher for immediate processing
-- **📂 Path preservation**: Relative directory structure is maintained
-- **⚡ Attribute preservation**: File permissions and timestamps (for filesystem)
-- **🛡️ Robust error handling**: Atomic operations and rollback
-- **🐳 Docker-ready**: Full container support
-- **🔧 Zero-configuration**: Works without configuration with sensible defaults
+- Multi-target support: Simultaneous copying to multiple destinations
+- Supported destination types:
+  - Local filesystem
+  - S3-compatible storage (MinIO, AWS S3, RustFS, etc.)
+  - SFTP/FTP servers
+- Real-time processing: File system watcher for immediate processing
+- Path preservation: Relative directory structure is maintained
+- Attribute preservation: File permissions and timestamps (for filesystem)
+- Error handling: Atomic operations and rollback
+- Docker support: Full container support
+- Default configuration: Works without configuration with default values
 
 ## Quick Start
 
@@ -388,7 +388,3 @@ For issues or questions:
 1. Check [test-scripts/README.md](test-scripts/README.md) for examples
 2. Review logs for errors
 3. Create an issue with details
-
----
-
-**File Shifter** - Reliable, automated file transfer for modern infrastructures.
