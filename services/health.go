@@ -114,8 +114,8 @@ func (hm *HealthMonitor) performHealthCheck() {
 	}
 
 	// Check if the file queue is too full (over 90%)
-	queueSize := hm.worker.FileWatcher.GetQueueSize()
-	queueCapacity := hm.worker.FileWatcher.GetQueueCapacity()
+	queueSize := hm.worker.FileWatcher.QueueSize()
+	queueCapacity := hm.worker.FileWatcher.QueueCapacity()
 	if queueCapacity > 0 {
 		fillPercentage := float64(queueSize) / float64(queueCapacity) * 100
 		if fillPercentage > 90 {
@@ -179,8 +179,8 @@ func (hm *HealthMonitor) getHealthStatus() HealthCheck {
 
 	// FileWatcher Status
 	if hm.worker.FileWatcher != nil {
-		queueSize := hm.worker.FileWatcher.GetQueueSize()
-		queueCapacity := hm.worker.FileWatcher.GetQueueCapacity()
+		queueSize := hm.worker.FileWatcher.QueueSize()
+		queueCapacity := hm.worker.FileWatcher.QueueCapacity()
 		var fillPercentage float64
 		status := HealthStatusHealthy
 		message := "FileWatcher is running normally"
@@ -232,7 +232,7 @@ func (hm *HealthMonitor) getHealthStatus() HealthCheck {
 		components["worker_pool"] = ComponentHealth{
 			Status:      HealthStatusHealthy,
 			LastChecked: time.Now(),
-			Message:     fmt.Sprintf("%d workers active", hm.worker.FileWatcher.GetWorkerCount()),
+			Message:     fmt.Sprintf("%d workers active", hm.worker.FileWatcher.WorkerCount()),
 		}
 	}
 

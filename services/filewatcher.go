@@ -132,7 +132,9 @@ func (fw *FileWatcher) handleEvent(event fsnotify.Event) {
 
 		// Remove the watcher if it exists (will fail silently if not watched)
 		// This is important for cleanup and memory management
-		fw.watcher.Remove(event.Name)
+		if err := fw.watcher.Remove(event.Name); err != nil {
+			slog.Debug("Error removing watcher (may not have been watched)", "path", event.Name, "error", err)
+		}
 		return
 	}
 
@@ -454,18 +456,18 @@ func (fw *FileWatcher) hasRelevantProcesses(filePath, lsofOutput string) bool {
 	return false
 }
 
-// GetQueueSize returns the current size of the file queue
-func (fw *FileWatcher) GetQueueSize() int {
+// QueueSize returns the current size of the file queue
+func (fw *FileWatcher) QueueSize() int {
 	return len(fw.fileQueue)
 }
 
-// GetQueueCapacity returns the maximum capacity of the file queue
-func (fw *FileWatcher) GetQueueCapacity() int {
+// QueueCapacity returns the maximum capacity of the file queue
+func (fw *FileWatcher) QueueCapacity() int {
 	return fw.queueCapacity
 }
 
-// GetWorkerCount returns the number of workers
-func (fw *FileWatcher) GetWorkerCount() int {
+// WorkerCount returns the number of workers
+func (fw *FileWatcher) WorkerCount() int {
 	return fw.workerCount
 }
 
