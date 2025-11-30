@@ -68,7 +68,7 @@ func (fw *FileWatcher) Start() error {
 		return err
 	}
 
-	slog.Info("File-Watcher gestartet", "directory", fw.inputDir)
+	slog.Info("File-Watcher started", "directory", fw.inputDir)
 
 	// Process existing files at startup
 	go fw.processExistingFiles()
@@ -80,7 +80,7 @@ func (fw *FileWatcher) Start() error {
 	for {
 		select {
 		case <-fw.stopChan:
-			slog.Info("File-Watcher gestoppt")
+			slog.Info("File-Watcher stopped")
 			return nil
 
 		case event, ok := <-fw.watcher.Events:
@@ -93,7 +93,7 @@ func (fw *FileWatcher) Start() error {
 			if !ok {
 				return nil
 			}
-			slog.Error("File-Watcher Fehler", "error", err)
+			slog.Error("File-Watcher error", "error", err)
 		}
 	}
 }
@@ -106,7 +106,7 @@ func (fw *FileWatcher) Stop() {
 	if err != nil {
 		slog.Error("Error closing file watcher", "error", err)
 	}
-	slog.Info("File-Watcher vollständig gestoppt")
+	slog.Info("File-Watcher completely stopped")
 }
 
 func (fw *FileWatcher) addRecursiveWatcher(root string) error {
@@ -122,7 +122,19 @@ func (fw *FileWatcher) addRecursiveWatcher(root string) error {
 }
 
 func (fw *FileWatcher) handleEvent(event fsnotify.Event) {
-	slog.Debug("File-System Event empfangen", "event", event.Name, "op", event.Op)
+	slog.Debug("File-System event received", "event", event.Name, "op", event.Op)
+
+	// Handle REMOVE/RENAME events (directory or file deletion)
+	if event.Op&fsnotify.Remove == fsnotify.Remove || event.Op&fsnotify.Rename == fsnotify.Rename {
+		// Try to determine if it was a directory by checking if we're watching it
+		// Note: The file/directory is already gone, so we can't stat it
+		slog.Info("Path removed or renamed", "path", event.Name, "op", event.Op)
+
+		// Remove the watcher if it exists (will fail silently if not watched)
+		// This is important for cleanup and memory management
+		fw.watcher.Remove(event.Name)
+		return
+	}
 
 	// Process CREATE, WRITE, and CHMOD events
 	if event.Op&fsnotify.Create == fsnotify.Create ||
@@ -141,6 +153,8 @@ func (fw *FileWatcher) handleEvent(event fsnotify.Event) {
 			if event.Op&fsnotify.Create == fsnotify.Create {
 				if err := fw.watcher.Add(event.Name); err != nil {
 					slog.Error("Error adding watcher for new directory", "directory", event.Name, "error", err)
+				} else {
+					slog.Debug("Watcher added for new directory", "directory", event.Name)
 				}
 			}
 			return
@@ -163,10 +177,10 @@ func (fw *FileWatcher) processFile(filePath string) {
 		return
 	}
 
-	slog.Info("Neue Datei erkannt", "file", filePath)
+	slog.Info("New file detected", "file", filePath)
 
 	if err := fw.waitForCompleteFile(filePath); err != nil {
-		slog.Error("Datei ist nicht vollständig - Verarbeitung übersprungen", "file", filePath, "error", err)
+		slog.Error("File is not complete - processing skipped", "file", filePath, "error", err)
 		return
 	}
 
@@ -174,16 +188,16 @@ func (fw *FileWatcher) processFile(filePath string) {
 	fw.enqueueFileWithMonitoring(filePath)
 }
 
-// enqueueFileWithMonitoring fügt eine Datei zur Warteschlange hinzu und überwacht die Kapazität
+// enqueueFileWithMonitoring adds a file to the queue and monitors capacity
 func (fw *FileWatcher) enqueueFileWithMonitoring(filePath string) {
-	// Datei zur Warteschlange hinzufügen
+	// Add file to queue
 	fw.fileQueue <- filePath
 
-	// Queue-Monitoring nach dem Hinzufügen
+	// Queue monitoring after adding
 	fw.checkQueueCapacity()
 }
 
-// checkQueueCapacity überwacht die Queue-Füllung und gibt Warnungen aus
+// checkQueueCapacity monitors queue fill level and outputs warnings
 func (fw *FileWatcher) checkQueueCapacity() {
 	fw.queueMutex.Lock()
 	defer fw.queueMutex.Unlock()
@@ -192,27 +206,27 @@ func (fw *FileWatcher) checkQueueCapacity() {
 	capacity := fw.queueCapacity
 	fillPercentage := float64(currentSize) / float64(capacity) * 100
 
-	// 80% Schwellwert für Warnung
+	// 80% threshold for warning
 	warningThreshold := 80.0
 
 	if fillPercentage >= warningThreshold {
-		// Warnung ausgeben, wenn noch nicht geloggt
+		// Output warning if not yet logged
 		if !fw.queueWarningLogged {
-			slog.Warn("FileQueue-Kapazität kritisch",
+			slog.Warn("FileQueue capacity critical",
 				"current_size", currentSize,
 				"capacity", capacity,
 				"fill_percentage", fmt.Sprintf("%.1f%%", fillPercentage),
-				"message", "Die Datei-Warteschlange ist zu 80% oder mehr gefüllt. Erwägen Sie, mehr Worker zu konfigurieren oder die Queue-Größe zu erhöhen.")
+				"message", "The file queue is 80% or more full. Consider configuring more workers or increasing the queue size.")
 			fw.queueWarningLogged = true
 		}
 	} else {
-		// Entwarnung ausgeben, wenn Warnung vorher aktiv war
+		// Output all-clear if warning was previously active
 		if fw.queueWarningLogged {
-			slog.Info("FileQueue-Kapazität normalisiert",
+			slog.Info("FileQueue capacity normalized",
 				"current_size", currentSize,
 				"capacity", capacity,
 				"fill_percentage", fmt.Sprintf("%.1f%%", fillPercentage),
-				"message", "Die Datei-Warteschlange ist wieder unter 80% Kapazität.")
+				"message", "The file queue is back below 80% capacity.")
 			fw.queueWarningLogged = false
 		}
 	}
@@ -226,13 +240,13 @@ func (fw *FileWatcher) worker() {
 			slog.Error("Error processing file", "file", filePath, "error", err)
 		}
 
-		// Queue-Monitoring nach dem Verarbeiten einer Datei
+		// Queue monitoring after processing a file
 		fw.checkQueueCapacity()
 	}
 }
 
 func (fw *FileWatcher) startWorkers() {
-	slog.Info("Starte Worker-Pool", "anzahl", fw.workerCount)
+	slog.Info("Starting worker pool", "count", fw.workerCount)
 	fw.workers.Add(fw.workerCount)
 	for i := 0; i < fw.workerCount; i++ {
 		go fw.worker()
@@ -247,7 +261,7 @@ func (fw *FileWatcher) processExistingFiles() {
 			return err
 		}
 
-		// Nur Dateien verarbeiten, keine Verzeichnisse
+		// Only process files, not directories
 		if !info.IsDir() {
 			fw.processFile(path)
 		}
@@ -342,7 +356,7 @@ func (fw *FileWatcher) canOpenExclusively(filePath string) bool {
 			if strings.Contains(strings.ToLower(err.Error()), "being used by another process") {
 				return false
 			}
-			// Anderer Fehler - könnte Berechtigung sein, als "verfügbar" behandeln
+			// Other error - could be permission, treat as "available"
 			return true
 		}
 	} else {
@@ -475,11 +489,11 @@ func (fw *FileWatcher) isRelevantProcess(filePath, line string) bool {
 		return false
 	}
 
-	slog.Debug("Active process detected", "file", filePath, "prozess", processName, "pid", pid)
+	slog.Debug("Active process detected", "file", filePath, "process", processName, "pid", pid)
 	return true
 }
 
-// checkLsofAvailable prüft ob lsof-Kommando verfügbar ist
+// checkLsofAvailable checks if lsof command is available
 func checkLsofAvailable() bool {
 	if runtime.GOOS == "windows" {
 		return false
@@ -487,7 +501,7 @@ func checkLsofAvailable() bool {
 
 	_, err := exec.LookPath("lsof")
 	if err != nil {
-		slog.Debug("lsof-Kommando nicht verfügbar - lsof-Prüfungen werden übersprungen", "error", err)
+		slog.Debug("lsof command not available - lsof checks will be skipped", "error", err)
 		return false
 	}
 
