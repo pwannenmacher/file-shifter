@@ -18,6 +18,11 @@ const (
 	HealthStatusDegraded  HealthStatus = "degraded"
 )
 
+const (
+	contentTypeHeader = "Content-Type"
+	contentTypeJSON   = "application/json"
+)
+
 type ComponentHealth struct {
 	Status      HealthStatus `json:"status"`
 	LastChecked time.Time    `json:"last_checked"`
@@ -129,9 +134,9 @@ func (hm *HealthMonitor) performHealthCheck() {
 }
 
 func (hm *HealthMonitor) healthHandler(w http.ResponseWriter, _ *http.Request) {
-	healthCheck := hm.getHealthStatus()
+	healthCheck := hm.HealthStatus()
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(contentTypeHeader, contentTypeJSON)
 	if healthCheck.Status != HealthStatusHealthy {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	} else {
@@ -146,7 +151,7 @@ func (hm *HealthMonitor) healthHandler(w http.ResponseWriter, _ *http.Request) {
 func (hm *HealthMonitor) livenessHandler(w http.ResponseWriter, _ *http.Request) {
 	// Liveness: Is the application still alive?
 	// If we can respond here, the application is running
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(contentTypeHeader, contentTypeJSON)
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status": "alive",
@@ -157,9 +162,9 @@ func (hm *HealthMonitor) livenessHandler(w http.ResponseWriter, _ *http.Request)
 
 func (hm *HealthMonitor) readinessHandler(w http.ResponseWriter, _ *http.Request) {
 	// Readiness: Is the application ready to do work?
-	healthCheck := hm.getHealthStatus()
+	healthCheck := hm.HealthStatus()
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(contentTypeHeader, contentTypeJSON)
 	if healthCheck.Status != HealthStatusHealthy {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	} else {
@@ -170,7 +175,7 @@ func (hm *HealthMonitor) readinessHandler(w http.ResponseWriter, _ *http.Request
 	}
 }
 
-func (hm *HealthMonitor) getHealthStatus() HealthCheck {
+func (hm *HealthMonitor) HealthStatus() HealthCheck {
 	hm.mu.RLock()
 	defer hm.mu.RUnlock()
 

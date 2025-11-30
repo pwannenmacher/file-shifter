@@ -42,7 +42,11 @@ func TestFileWatcher_DirectoryDeletion(t *testing.T) {
 	}
 
 	// Start file watcher in background
-	go fw.Start()
+	go func() {
+		if err := fw.Start(); err != nil {
+			t.Logf("FileWatcher stopped with error: %v", err)
+		}
+	}()
 	defer fw.Stop()
 
 	// Wait for watcher to initialize
@@ -73,8 +77,14 @@ func TestFileWatcher_DirectoryDeletion(t *testing.T) {
 
 	// Check if new file exists in output
 	outputFile := filepath.Join(outputDir, "newfile.txt")
-	if _, err := os.Stat(outputFile); os.IsNotExist(err) {
-		t.Error("New file should exist in output directory")
+	if stat, err := os.Stat(outputFile); err != nil {
+		if os.IsNotExist(err) {
+			t.Error("New file should exist in output directory")
+		} else {
+			t.Errorf("Error checking output file: %v", err)
+		}
+	} else if stat.IsDir() {
+		t.Error("Output file should be a file, not a directory")
 	}
 }
 
@@ -162,7 +172,11 @@ func TestFileWatcher_DirectoryRecreation(t *testing.T) {
 	}
 
 	// Start file watcher in background
-	go fw.Start()
+	go func() {
+		if err := fw.Start(); err != nil {
+			t.Logf("FileWatcher stopped with error: %v", err)
+		}
+	}()
 	defer fw.Stop()
 
 	// Wait for watcher to initialize
@@ -201,7 +215,13 @@ func TestFileWatcher_DirectoryRecreation(t *testing.T) {
 
 	// Check if file was processed
 	outputFile := filepath.Join(outputDir, "subdir", "test.txt")
-	if _, err := os.Stat(outputFile); os.IsNotExist(err) {
-		t.Error("File in recreated directory should have been processed and exist in output")
+	if stat, err := os.Stat(outputFile); err != nil {
+		if os.IsNotExist(err) {
+			t.Error("File in recreated directory should have been processed and exist in output")
+		} else {
+			t.Errorf("Error checking output file: %v", err)
+		}
+	} else if stat.IsDir() {
+		t.Error("Output file should be a file, not a directory")
 	}
 }
