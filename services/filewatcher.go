@@ -124,45 +124,66 @@ func (fw *FileWatcher) addRecursiveWatcher(root string) error {
 func (fw *FileWatcher) handleEvent(event fsnotify.Event) {
 	slog.Debug("File-System event received", "event", event.Name, "op", event.Op)
 
-	// Handle REMOVE/RENAME events (directory or file deletion)
-	if event.Op&fsnotify.Remove == fsnotify.Remove || event.Op&fsnotify.Rename == fsnotify.Rename {
-		// Try to determine if it was a directory by checking if we're watching it
-		// Note: The file/directory is already gone, so we can't stat it
-		slog.Info("Path removed or renamed", "path", event.Name, "op", event.Op)
-
-		// Remove the watcher if it exists (will fail silently if not watched)
-		// This is important for cleanup and memory management
-		if err := fw.watcher.Remove(event.Name); err != nil {
-			slog.Debug("Error removing watcher (may not have been watched)", "path", event.Name, "error", err)
-		}
+	if fw.isRemoveOrRenameEvent(event) {
+		fw.handleRemoveEvent(event)
 		return
 	}
 
-	// Process CREATE, WRITE, and CHMOD events
-	if event.Op&fsnotify.Create == fsnotify.Create ||
+	if fw.isModificationEvent(event) {
+		fw.handleModificationEvent(event)
+	}
+}
+
+// isRemoveOrRenameEvent checks if the event is a remove or rename operation
+func (fw *FileWatcher) isRemoveOrRenameEvent(event fsnotify.Event) bool {
+	return event.Op&fsnotify.Remove == fsnotify.Remove || event.Op&fsnotify.Rename == fsnotify.Rename
+}
+
+// isModificationEvent checks if the event is a create, write, or chmod operation
+func (fw *FileWatcher) isModificationEvent(event fsnotify.Event) bool {
+	return event.Op&fsnotify.Create == fsnotify.Create ||
 		event.Op&fsnotify.Write == fsnotify.Write ||
-		event.Op&fsnotify.Chmod == fsnotify.Chmod {
+		event.Op&fsnotify.Chmod == fsnotify.Chmod
+}
 
-		// Check whether it is a file
-		info, err := os.Stat(event.Name)
-		if err != nil {
-			slog.Debug("Error reading file info", "file", event.Name, "error", err)
-			return
-		}
+// handleRemoveEvent handles file or directory removal/rename events
+func (fw *FileWatcher) handleRemoveEvent(event fsnotify.Event) {
+	slog.Info("Path removed or renamed", "path", event.Name, "op", event.Op)
 
-		if info.IsDir() {
-			// New directory - Add watcher
-			if event.Op&fsnotify.Create == fsnotify.Create {
-				if err := fw.watcher.Add(event.Name); err != nil {
-					slog.Error("Error adding watcher for new directory", "directory", event.Name, "error", err)
-				} else {
-					slog.Debug("Watcher added for new directory", "directory", event.Name)
-				}
-			}
-			return
-		}
+	// Remove the watcher if it exists (will fail silently if not watched)
+	// This is important for cleanup and memory management
+	if err := fw.watcher.Remove(event.Name); err != nil {
+		slog.Debug("Error removing watcher (may not have been watched)", "path", event.Name, "error", err)
+	}
+}
 
-		fw.processFile(event.Name)
+// handleModificationEvent handles file creation, modification, or permission change events
+func (fw *FileWatcher) handleModificationEvent(event fsnotify.Event) {
+	info, err := os.Stat(event.Name)
+	if err != nil {
+		slog.Debug("Error reading file info", "file", event.Name, "error", err)
+		return
+	}
+
+	if info.IsDir() {
+		fw.handleDirectoryCreation(event)
+		return
+	}
+
+	fw.processFile(event.Name)
+}
+
+// handleDirectoryCreation handles new directory creation events
+func (fw *FileWatcher) handleDirectoryCreation(event fsnotify.Event) {
+	// Only add watcher for newly created directories
+	if event.Op&fsnotify.Create != fsnotify.Create {
+		return
+	}
+
+	if err := fw.watcher.Add(event.Name); err != nil {
+		slog.Error("Error adding watcher for new directory", "directory", event.Name, "error", err)
+	} else {
+		slog.Debug("Watcher added for new directory", "directory", event.Name)
 	}
 }
 
