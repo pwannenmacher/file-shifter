@@ -128,7 +128,7 @@ func main() {
 				Type: "filesystem",
 			},
 		}
-		cfg.Output = outputTargets // Auch in cfg setzen für Validierung
+		cfg.Output = outputTargets // Also set in cfg for validation
 		slog.Info("No output configuration found - use standard default", "target", "./output")
 	}
 
@@ -141,6 +141,10 @@ func main() {
 	// Initialise and start workers
 	workerService := services.NewWorker(inputDir, outputTargets, cfg)
 
+	// Start Health-Monitor
+	healthMonitor := services.NewHealthMonitor(workerService, "8080")
+	healthMonitor.Start()
+
 	// Graceful Shutdown Handler
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -148,6 +152,7 @@ func main() {
 	go func() {
 		<-sigChan
 		slog.Info("Shutdown signal received...")
+		healthMonitor.Stop()
 		workerService.Stop()
 	}()
 

@@ -3,40 +3,43 @@ FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
-# Dependencies kopieren und herunterladen
+# Copy dependencies and download
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Source-Code kopieren
+# Copy source code
 COPY . .
 
-# Binary kompilieren
+# Compile binary
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
 
 # Runtime-Stage
 FROM alpine:latest
 
-# Benötigte Pakete installieren (inklusive lsof für Datei-Überwachung)
-RUN apk --no-cache add ca-certificates lsof tzdata
+# Install required packages (including lsof for file monitoring)
+RUN apk --no-cache add ca-certificates lsof tzdata wget
 
 WORKDIR /root/
 
-# Binary aus Build-Stage kopieren
+# Copy binary from build stage
 COPY --from=builder /app/main .
 
-# Volumes für Input/Output-Verzeichnisse
+# Volumes for input/output directories
 RUN mkdir -p /app/input /app/output
 RUN chmod -R 755 /app/input /app/output
 VOLUME ["/app/input"]
 VOLUME ["/app/output"]
 
-# Benutzer für Security
+# User for security
 RUN adduser -D -s /bin/sh appuser
 USER appuser
 
+# Expose health-check port
+EXPOSE 8080
+
 # Health-Check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD ps aux | grep '[m]ain' || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
-# Binary ausführen
+# Execute binary
 CMD ["./main"]

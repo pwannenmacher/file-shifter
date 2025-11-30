@@ -14,9 +14,9 @@ destinations. After successful transfer to all destinations, the original file i
 
 - Multi-target support: Simultaneous copying to multiple destinations
 - Supported destination types:
-  - Local filesystem
-  - S3-compatible storage (MinIO, AWS S3, RustFS, etc.)
-  - SFTP/FTP servers
+    - Local filesystem
+    - S3-compatible storage (MinIO, AWS S3, RustFS, etc.)
+    - SFTP/FTP servers
 - Real-time processing: File system watcher for immediate processing
 - Path preservation: Relative directory structure is maintained
 - Attribute preservation: File permissions and timestamps (for filesystem)
@@ -336,6 +336,106 @@ services:
       - OUTPUT_2_SSL=true
       - OUTPUT_2_REGION=eu-central-1
     restart: always
+```
+
+## Health Monitoring
+
+File Shifter provides HTTP endpoints for health monitoring and container orchestration:
+
+### Endpoints
+
+- **`/health`** - Complete health status with component details (port 8080)
+- **`/health/live`** - Liveness probe (checks if application is running)
+- **`/health/ready`** - Readiness probe (checks if application is ready to process files)
+
+### Health Status
+
+The health check monitors:
+
+- **FileWatcher**: Status of file system watcher and queue capacity
+- **Worker Pool**: Number of active workers
+- **S3 Clients**: Number of active S3 connections
+
+Health states:
+
+- `healthy` - All components operational, queue < 80% full
+- `degraded` - Queue 80-90% full, consider scaling workers
+- `unhealthy` - Queue > 90% full or critical component failure
+
+### Example Response
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-11-30T10:00:00Z",
+  "components": {
+    "file_watcher": {
+      "status": "healthy",
+      "last_checked": "2025-11-30T10:00:00Z",
+      "message": "FileWatcher is running normally"
+    },
+    "worker_pool": {
+      "status": "healthy",
+      "last_checked": "2025-11-30T10:00:00Z",
+      "message": "4 workers active"
+    },
+    "s3_clients": {
+      "status": "healthy",
+      "last_checked": "2025-11-30T10:00:00Z",
+      "message": "2 active S3 clients"
+    }
+  }
+}
+```
+
+### Docker Health Check
+
+The Dockerfile includes an automatic health check:
+
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+```
+
+### Docker Compose Example
+
+```yaml
+services:
+  file-shifter:
+    image: pwannenmacher/file-shifter:latest
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+```
+
+### Kubernetes Example
+
+```yaml
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: file-shifter
+      image: pwannenmacher/file-shifter:latest
+      ports:
+        - containerPort: 8080
+          name: health
+      livenessProbe:
+        httpGet:
+          path: /health/live
+          port: 8080
+        initialDelaySeconds: 5
+        periodSeconds: 30
+      readinessProbe:
+        httpGet:
+          path: /health/ready
+          port: 8080
+        initialDelaySeconds: 5
+        periodSeconds: 10
 ```
 
 ## Build & Installation
