@@ -2,6 +2,7 @@ package services
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -68,7 +69,7 @@ func (hm *HealthMonitor) Start() {
 	// Start HTTP Server
 	go func() {
 		slog.Info("Health-Check server started", "port", hm.port)
-		if err := hm.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := hm.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("Health-Check server error", "error", err)
 		}
 	}()
@@ -80,7 +81,9 @@ func (hm *HealthMonitor) Stop() {
 	}
 	close(hm.stopChan)
 	if hm.server != nil {
-		hm.server.Close()
+		if err := hm.server.Close(); err != nil {
+			slog.Error("Error closing health check server", "error", err)
+		}
 	}
 	slog.Info("Health-Check server stopped")
 }
@@ -125,7 +128,7 @@ func (hm *HealthMonitor) performHealthCheck() {
 	}
 }
 
-func (hm *HealthMonitor) healthHandler(w http.ResponseWriter, r *http.Request) {
+func (hm *HealthMonitor) healthHandler(w http.ResponseWriter, _ *http.Request) {
 	healthCheck := hm.getHealthStatus()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -135,20 +138,24 @@ func (hm *HealthMonitor) healthHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 
-	json.NewEncoder(w).Encode(healthCheck)
+	if err := json.NewEncoder(w).Encode(healthCheck); err != nil {
+		slog.Error("Failed to encode health check response", "error", err)
+	}
 }
 
-func (hm *HealthMonitor) livenessHandler(w http.ResponseWriter, r *http.Request) {
+func (hm *HealthMonitor) livenessHandler(w http.ResponseWriter, _ *http.Request) {
 	// Liveness: Is the application still alive?
 	// If we can respond here, the application is running
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status": "alive",
-	})
+	}); err != nil {
+		slog.Error("Failed to encode liveness response", "error", err)
+	}
 }
 
-func (hm *HealthMonitor) readinessHandler(w http.ResponseWriter, r *http.Request) {
+func (hm *HealthMonitor) readinessHandler(w http.ResponseWriter, _ *http.Request) {
 	// Readiness: Is the application ready to do work?
 	healthCheck := hm.getHealthStatus()
 
@@ -158,7 +165,9 @@ func (hm *HealthMonitor) readinessHandler(w http.ResponseWriter, r *http.Request
 	} else {
 		w.WriteHeader(http.StatusOK)
 	}
-	json.NewEncoder(w).Encode(healthCheck)
+	if err := json.NewEncoder(w).Encode(healthCheck); err != nil {
+		slog.Error("Failed to encode readiness response", "error", err)
+	}
 }
 
 func (hm *HealthMonitor) getHealthStatus() HealthCheck {
@@ -172,19 +181,24 @@ func (hm *HealthMonitor) getHealthStatus() HealthCheck {
 	if hm.worker.FileWatcher != nil {
 		queueSize := hm.worker.FileWatcher.GetQueueSize()
 		queueCapacity := hm.worker.FileWatcher.GetQueueCapacity()
-		fillPercentage := float64(queueSize) / float64(queueCapacity) * 100
-
+		var fillPercentage float64
 		status := HealthStatusHealthy
 		message := "FileWatcher is running normally"
 
-		if fillPercentage > 90 {
+		if queueCapacity == 0 {
+			fillPercentage = 0
 			status = HealthStatusUnhealthy
-			message = "FileQueue is critically full (>90%)"
+			message = "FileWatcher queue capacity is zero (misconfiguration)"
 			overallStatus = HealthStatusUnhealthy
-		} else if fillPercentage > 80 {
-			status = HealthStatusDegraded
-			message = "FileQueue is heavily loaded (>80%)"
-			if overallStatus == HealthStatusHealthy {
+		} else {
+			fillPercentage = float64(queueSize) / float64(queueCapacity) * 100
+			if fillPercentage > 90 {
+				status = HealthStatusUnhealthy
+				message = "FileQueue is critically full (>90%)"
+				overallStatus = HealthStatusUnhealthy
+			} else if fillPercentage > 80 {
+				status = HealthStatusDegraded
+				message = "FileQueue is heavily loaded (>80%)"
 				overallStatus = HealthStatusDegraded
 			}
 		}
