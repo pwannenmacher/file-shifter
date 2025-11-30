@@ -440,6 +440,21 @@ func (fw *FileWatcher) hasRelevantProcesses(filePath, lsofOutput string) bool {
 	return false
 }
 
+// GetQueueSize returns the current size of the file queue
+func (fw *FileWatcher) GetQueueSize() int {
+	return len(fw.fileQueue)
+}
+
+// GetQueueCapacity returns the maximum capacity of the file queue
+func (fw *FileWatcher) GetQueueCapacity() int {
+	return fw.queueCapacity
+}
+
+// GetWorkerCount returns the number of workers
+func (fw *FileWatcher) GetWorkerCount() int {
+	return fw.workerCount
+}
+
 // isRelevantProcess checks whether a process in the lsof line is relevant
 func (fw *FileWatcher) isRelevantProcess(filePath, line string) bool {
 	fields := strings.Fields(line)
