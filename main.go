@@ -30,7 +30,7 @@ func loadEnvYaml() (*config.EnvConfig, error) {
 	} else if ymlExists {
 		configFile = "env.yml"
 	} else {
-		return nil, fmt.Errorf("No configuration file found (env.yaml or env.yml)")
+		return nil, fmt.Errorf("no configuration file found (env.yaml or env.yml)")
 	}
 
 	data, err := os.ReadFile(configFile)

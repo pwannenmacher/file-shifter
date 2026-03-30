@@ -126,7 +126,7 @@ func (w *Worker) validateS3Target(target config.OutputTarget) error {
 	// S3-Client vorläufig erstellen und testen
 	if _, err := w.S3ClientManager.GetOrCreateClient(s3Config); err != nil {
 		slog.Error("S3 client creation failed", "endpoint", s3Config.Endpoint, "err", err)
-		return fmt.Errorf("S3 client creation failed for %s: %w", s3Config.Endpoint, err)
+		return fmt.Errorf("s3 client creation failed for %s: %w", s3Config.Endpoint, err)
 	}
 
 	return nil
