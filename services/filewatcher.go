@@ -87,7 +87,8 @@ func (fw *FileWatcher) Start() error {
 			if !ok {
 				return nil
 			}
-			fw.handleEvent(event)
+			// Avoid blocking the event loop for too long
+			go fw.handleEvent(event)
 
 		case err, ok := <-fw.watcher.Errors:
 			if !ok {
@@ -153,7 +154,8 @@ func (fw *FileWatcher) handleRemoveEvent(event fsnotify.Event) {
 	// Remove the watcher if it exists (will fail silently if not watched)
 	// This is important for cleanup and memory management
 	if err := fw.watcher.Remove(event.Name); err != nil {
-		slog.Debug("Error removing watcher (may not have been watched)", "path", event.Name, "error", err)
+		// Log as debug because this is expected for many sub-paths when a parent is deleted
+		slog.Debug("Info: Watcher already removed or not watched", "path", event.Name, "error", err)
 	}
 }
 
@@ -170,7 +172,7 @@ func (fw *FileWatcher) handleModificationEvent(event fsnotify.Event) {
 		return
 	}
 
-	fw.processFile(event.Name)
+	go fw.processFile(event.Name)
 }
 
 // handleDirectoryCreation handles new directory creation events
@@ -180,10 +182,29 @@ func (fw *FileWatcher) handleDirectoryCreation(event fsnotify.Event) {
 		return
 	}
 
-	if err := fw.watcher.Add(event.Name); err != nil {
-		slog.Error("Error adding watcher for new directory", "directory", event.Name, "error", err)
+	// Wait for directory to be ready
+	time.Sleep(100 * time.Millisecond)
+
+	// Add watchers recursively
+	err := fw.addRecursiveWatcher(event.Name)
+	if err != nil {
+		slog.Error("Error adding watcher for new directory recursively", "directory", event.Name, "error", err)
 	} else {
-		slog.Debug("Watcher added for new directory", "directory", event.Name)
+		slog.Debug("Watcher added for new directory and subdirectories", "directory", event.Name)
+	}
+
+	// Also process any files that might already be in this new directory
+	err = filepath.Walk(event.Name, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			go fw.processFile(path)
+		}
+		return nil
+	})
+	if err != nil {
+		slog.Error("Error processing files in new directory", "directory", event.Name, "error", err)
 	}
 }
 
@@ -446,8 +467,7 @@ func (fw *FileWatcher) executeLsof(filePath string) (string, error) {
 
 	if err != nil {
 		// lsof exit code 1 means ‘no open files found’ – that's good.
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			if exitErr.ExitCode() == 1 {
 				return "", fmt.Errorf("no open files")
 			}
