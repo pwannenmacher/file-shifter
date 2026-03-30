@@ -326,9 +326,9 @@ func (fh *FileHandler) copyToSFTP(srcPath, relPath string, target config.OutputT
 func (fh *FileHandler) copyToSFTPClient(srcPath, remotePath, host string, target config.OutputTarget) error {
 	// SSH-Verbindung aufbauen
 	ftpConfig := target.GetFTPConfig()
-	config := createSSHConfig(ftpConfig)
+	sshConfig := createSSHConfig(ftpConfig)
 
-	conn, err := ssh.Dial("tcp", host, config)
+	conn, err := ssh.Dial("tcp", host, sshConfig)
 	if err != nil {
 		return fmt.Errorf("SSH-Verbindung fehlgeschlagen: %w", err)
 	}
@@ -547,9 +547,9 @@ func (fh *FileHandler) deleteFromSFTP(relPath string, target config.OutputTarget
 	}
 
 	ftpConfig := target.GetFTPConfig()
-	config := createSSHConfig(ftpConfig)
+	sshConfig := createSSHConfig(ftpConfig)
 
-	conn, err := ssh.Dial("tcp", host, config)
+	conn, err := ssh.Dial("tcp", host, sshConfig)
 	if err != nil {
 		return fmt.Errorf("SSH connection failed: %w", err)
 	}
