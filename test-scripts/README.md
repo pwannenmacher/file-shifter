@@ -14,35 +14,35 @@ Comprehensive tests for all configuration methods and destination types. Tests a
 
 ### Standard & Filesystem Tests
 
-| Script                | Description                  | Configuration             | Details                                              |
-|-----------------------|------------------------------|---------------------------|------------------------------------------------------|
-| `test-default.sh`     | Zero-Configuration Test      | None (Standard defaults)  | Tests ./input → ./output, checks standard defaults |
-| `test-fs-env.sh`      | Filesystem with ENV variables | `.env`                    | Multi-target filesystem setup, ENV priority         |
-| `test-fs-yaml.sh`     | Filesystem with YAML          | `env.yaml`                | Structured YAML configuration                        |
-| `test-fs-env-json.sh` | Filesystem with JSON ENV      | `.env` (JSON format)      | Legacy JSON structure (backward compatibility)       |
+| Script                | Description                   | Configuration            | Details                                            |
+|-----------------------|-------------------------------|--------------------------|----------------------------------------------------|
+| `test-default.sh`     | Zero-Configuration Test       | None (Standard defaults) | Tests ./input → ./output, checks standard defaults |
+| `test-fs-env.sh`      | Filesystem with ENV variables | `.env`                   | Multi-target filesystem setup, ENV priority        |
+| `test-fs-yaml.sh`     | Filesystem with YAML          | `env.yaml`               | Structured YAML configuration                      |
+| `test-fs-env-json.sh` | Filesystem with JSON ENV      | `.env` (JSON format)     | Legacy JSON structure (backward compatibility)     |
 
 ### S3 Tests (MinIO erforderlich)
 
-| Script            | Description               | Configuration | Details                                            |
+| Script            | Description                | Configuration | Details                                            |
 |-------------------|----------------------------|---------------|----------------------------------------------------|
 | `test-s3-env.sh`  | S3/MinIO mit ENV-Variablen | `.env`        | S3-Integration über ENV, MinIO-Client Verifikation |
 | `test-s3-yaml.sh` | S3/MinIO mit YAML          | `env.yaml`    | S3-Integration über YAML, Bucket-Verifikation      |
 
 ### Combined Tests
 
-| Script             | Description         | Configuration       | Details                                                |
-|--------------------|---------------------|---------------------|--------------------------------------------------------|
-| `test-combined.sh` | Multi-target (FS + S3) | `.env` + `env.yaml` | Configuration hierarchy (.env overrides env.yaml)     |
+| Script             | Description            | Configuration       | Details                                           |
+|--------------------|------------------------|---------------------|---------------------------------------------------|
+| `test-combined.sh` | Multi-target (FS + S3) | `.env` + `env.yaml` | Configuration hierarchy (.env overrides env.yaml) |
 
 ### Special Tests
 
-| Script               | Description       | Purpose                                   | Details                                 |
-|----------------------|-------------------|-------------------------------------------|-----------------------------------------|
-| `test-yml-format.sh` | YAML format test  | Validation of different YAML structures  | env.yml vs env.yaml, conflict detection |
+| Script               | Description      | Purpose                                 | Details                                 |
+|----------------------|------------------|-----------------------------------------|-----------------------------------------|
+| `test-yml-format.sh` | YAML format test | Validation of different YAML structures | env.yml vs env.yaml, conflict detection |
 
 ## 🔧 Utilities
 
-| Script             | Description              | Purpose                  |
+| Script             | Description               | Purpose                     |
 |--------------------|---------------------------|-----------------------------|
 | `test-overview.sh` | Test-Übersicht und Runner | Interaktiv oder `--run-all` |
 | `clean.sh`         | Interaktives Aufräumen    | Benutzergeführt             |
@@ -71,17 +71,17 @@ docker run -d -p 9000:9000 -p 9001:9001 \
 ### Test Philosophy
 
 - **Isolation**
-  - Each test runs in an isolated environment
-  - No dependencies between tests
-  - Clean state before and after each test
+    - Each test runs in an isolated environment
+    - No dependencies between tests
+    - Clean state before and after each test
 - **Non-destructive**
-  - Original configuration files are backed up
-  - Complete restoration after tests
-  - Workspace remains unchanged
+    - Original configuration files are backed up
+    - Complete restoration after tests
+    - Workspace remains unchanged
 - **Self-contained**
-  - Automatic dependency checking (e.g. MinIO)
-  - Build integration without external dependencies
-  - Clear error messages for missing prerequisites
+    - Automatic dependency checking (e.g. MinIO)
+    - Build integration without external dependencies
+    - Clear error messages for missing prerequisites
 
 ## Workflows
 
