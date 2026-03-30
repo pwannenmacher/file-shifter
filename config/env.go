@@ -144,8 +144,7 @@ func (c *EnvConfig) loadTargetProperties(target *OutputTarget, index string) {
 		target.SecretKey = value
 	}
 	if value := os.Getenv(prefix + "SSL"); value != "" {
-		ssl := strings.ToLower(value) == "true"
-		target.SSL = &ssl
+		target.SSL = new(strings.ToLower(value) == "true")
 	}
 	if value := os.Getenv(prefix + "REGION"); value != "" {
 		target.Region = value
@@ -266,8 +265,7 @@ func (c *EnvConfig) loadOutputFromYAMLEnv() {
 			target.SecretKey = secretKey
 		}
 		if sslStr := os.Getenv(fmt.Sprintf("output.%d.ssl", targetIndex)); sslStr != "" {
-			ssl := strings.ToLower(sslStr) == "true"
-			target.SSL = &ssl
+			target.SSL = new(strings.ToLower(sslStr) == "true")
 		}
 		if region := os.Getenv(fmt.Sprintf("output.%d.region", targetIndex)); region != "" {
 			target.Region = region

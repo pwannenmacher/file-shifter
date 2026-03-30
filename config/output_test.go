@@ -18,7 +18,7 @@ func TestOutputTarget_GetS3Config(t *testing.T) {
 				Endpoint:  "s3.amazonaws.com",
 				AccessKey: "AKIAIOSFODNN7EXAMPLE",
 				SecretKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-				SSL:       boolPtr(true),
+				SSL:       new(true),
 				Region:    "eu-central-1",
 			},
 			expected: S3Config{
@@ -37,7 +37,7 @@ func TestOutputTarget_GetS3Config(t *testing.T) {
 				Endpoint:  "localhost:9000",
 				AccessKey: "minioadmin",
 				SecretKey: "minioadmin",
-				SSL:       boolPtr(false),
+				SSL:       new(false),
 				Region:    "us-east-1",
 			},
 			expected: S3Config{
@@ -437,7 +437,7 @@ func BenchmarkOutputTarget_GetS3Config(b *testing.B) {
 		Endpoint:  "s3.amazonaws.com",
 		AccessKey: "AKIAIOSFODNN7EXAMPLE",
 		SecretKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-		SSL:       boolPtr(true),
+		SSL:       new(true),
 		Region:    "eu-central-1",
 	}
 
