@@ -1,5 +1,5 @@
 # Build-Stage
-FROM golang:1.26-alpine AS builder
+FROM dhi.io/golang:1 AS builder
 
 WORKDIR /app
 
@@ -14,15 +14,14 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
 
 # Runtime-Stage
-FROM alpine:latest
+FROM dhi.io/alpine-base:3.23
 
-# Install required packages (including lsof for file monitoring)
-RUN apk --no-cache add ca-certificates lsof tzdata wget
+USER 0
 
-WORKDIR /root/
+WORKDIR /app
 
 # Copy binary from build stage
-COPY --from=builder /app/main .
+COPY --from=builder /app/main /app/main
 
 # Volumes for input/output directories
 RUN mkdir -p /app/input /app/output
@@ -32,6 +31,7 @@ VOLUME ["/app/output"]
 
 # User for security
 RUN adduser -D -s /bin/sh appuser
+RUN chown -R appuser:appuser /app
 USER appuser
 
 # Expose health-check port
