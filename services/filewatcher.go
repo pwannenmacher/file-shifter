@@ -34,6 +34,9 @@ type FileWatcher struct {
 	queueCapacity      int
 	queueWarningLogged bool
 	queueMutex         sync.Mutex
+	// Deduplicate file events so each file is queued at most once at a time.
+	processingFiles map[string]struct{}
+	processingMutex sync.Mutex
 }
 
 func NewFileWatcher(inputDir string, fileHandler *FileHandler, maxRetries int, checkInterval, stabilityPeriod time.Duration, workerCount, queueSize int) (*FileWatcher, error) {
@@ -53,6 +56,7 @@ func NewFileWatcher(inputDir string, fileHandler *FileHandler, maxRetries int, c
 		fileQueue:       make(chan string, queueSize), // Configurable queue size
 		workerCount:     workerCount,                  // Configurable worker count
 		queueCapacity:   queueSize,                    // Store capacity for monitoring
+		processingFiles: make(map[string]struct{}),
 	}
 
 	// Check lsof availability
@@ -215,8 +219,14 @@ func (fw *FileWatcher) processFile(filePath string) {
 		return
 	}
 
+	if !fw.tryMarkFileForProcessing(filePath) {
+		slog.Debug("File already queued or processing - skip duplicate event", "file", filePath)
+		return
+	}
+
 	fileName := filepath.Base(filePath)
 	if fileName[0] == '.' || fileName[0] == '~' {
+		fw.unmarkFileForProcessing(filePath)
 		slog.Debug("Ignore temporary/hidden file", "file", filePath)
 		return
 	}
@@ -224,6 +234,7 @@ func (fw *FileWatcher) processFile(filePath string) {
 	slog.Info("New file detected", "file", filePath)
 
 	if err := fw.waitForCompleteFile(filePath); err != nil {
+		fw.unmarkFileForProcessing(filePath)
 		slog.Error("File is not complete - processing skipped", "file", filePath, "error", err)
 		return
 	}
@@ -283,10 +294,30 @@ func (fw *FileWatcher) worker() {
 		if err := fw.fileHandler.ProcessFile(filePath, fw.inputDir); err != nil {
 			slog.Error("Error processing file", "file", filePath, "error", err)
 		}
+		fw.unmarkFileForProcessing(filePath)
 
 		// Queue monitoring after processing a file
 		fw.checkQueueCapacity()
 	}
+}
+
+func (fw *FileWatcher) tryMarkFileForProcessing(filePath string) bool {
+	fw.processingMutex.Lock()
+	defer fw.processingMutex.Unlock()
+
+	if _, exists := fw.processingFiles[filePath]; exists {
+		return false
+	}
+
+	fw.processingFiles[filePath] = struct{}{}
+	return true
+}
+
+func (fw *FileWatcher) unmarkFileForProcessing(filePath string) {
+	fw.processingMutex.Lock()
+	defer fw.processingMutex.Unlock()
+
+	delete(fw.processingFiles, filePath)
 }
 
 func (fw *FileWatcher) startWorkers() {

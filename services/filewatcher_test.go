@@ -323,6 +323,35 @@ func TestFileWatcher_ProcessFile(t *testing.T) {
 	}
 }
 
+func TestFileWatcher_ProcessFile_DeduplicatesSamePath(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "process_file_dedupe_test_*")
+	defer cleanup()
+
+	s3Manager := NewS3ClientManager()
+	defer s3Manager.Close()
+
+	targets := []config.OutputTarget{{Type: "filesystem", Path: tempDir}}
+	fileHandler := NewFileHandler(targets, s3Manager)
+
+	watcher, err := NewFileWatcher(tempDir, fileHandler, 2, 1*time.Millisecond, 1*time.Millisecond, 1, 10)
+	if err != nil {
+		t.Fatalf("Fehler beim Erstellen des FileWatchers: %v", err)
+	}
+	defer watcher.watcher.Close()
+
+	filePath := filepath.Join(tempDir, "same.txt")
+	if err := os.WriteFile(filePath, []byte("content"), 0644); err != nil {
+		t.Fatalf("Fehler beim Erstellen der Testdatei: %v", err)
+	}
+
+	watcher.processFile(filePath)
+	watcher.processFile(filePath)
+
+	if got := len(watcher.fileQueue); got != 1 {
+		t.Fatalf("Datei sollte nur einmal in der Queue stehen, ist aber %d-mal eingereiht", got)
+	}
+}
+
 func TestFileWatcher_ProcessExistingFiles(t *testing.T) {
 	tempDir, cleanup := setupTempDir(t, "existing_files_test_*")
 	defer cleanup()

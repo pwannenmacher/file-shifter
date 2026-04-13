@@ -185,15 +185,14 @@ func (fh *FileHandler) ProcessFile(filePath, inputDir string) error {
 	// If all transfers were successful, calculate the final checksum.
 	if len(transferErrors) == 0 {
 		// Calculate final checksum (immediately before deletion)
-		finalChecksum, err := fh.calculateFileChecksum(filePath)
-		if err != nil {
-			slog.Error("Error calculating final checksum", "file", filePath, "error", err)
+		finalChecksum, checksumErr := fh.calculateFileChecksum(filePath)
+		if checksumErr != nil {
+			slog.Error("Error calculating final checksum", "file", filePath, "error", checksumErr)
 			// If there is an error in the checksum check: Delete target files
-			err := fh.cleanupTargetFiles(relPath)
-			if err != nil {
-				return fmt.Errorf("error cleaning target files: %w", err)
+			if cleanupErr := fh.cleanupTargetFiles(relPath); cleanupErr != nil {
+				return fmt.Errorf("error cleaning target files: %w", cleanupErr)
 			}
-			return fmt.Errorf("error calculating the final checksum: %w", err)
+			return fmt.Errorf("error calculating the final checksum: %w", checksumErr)
 		}
 
 		// Prüfsummen vergleichen
