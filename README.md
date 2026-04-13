@@ -469,6 +469,19 @@ cd test-scripts
 
 See [`test-scripts/README.md`](test-scripts/README.md) for details.
 
+### Upgrading dependencies
+
+```bash
+cd backend
+
+# Only patch and minor updates
+go get -u=patch
+# Or for all updates:
+go get -u ./...
+
+go mod tidy
+```
+
 ## Contributing
 
 1. Fork the repository
