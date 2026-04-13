@@ -557,12 +557,12 @@ func (fw *FileWatcher) executeLsof(filePath string) (string, error) {
 // hasRelevantProcesses checks whether relevant processes have the file open
 func (fw *FileWatcher) hasRelevantProcesses(filePath, lsofOutput string) bool {
 	lines := strings.Split(strings.TrimSpace(lsofOutput), "\n")
-	if len(lines) <= 1 {
-		return false // Header only or empty
+	if len(lines) == 0 || (len(lines) == 1 && strings.TrimSpace(lines[0]) == "") {
+		return false
 	}
 
-	// Skip header and analyse processes
-	for _, line := range lines[1:] {
+	// Analyse all lines and ignore non-process/header entries in isRelevantProcess.
+	for _, line := range lines {
 		if fw.isRelevantProcess(filePath, line) {
 			return true
 		}
@@ -588,6 +588,15 @@ func (fw *FileWatcher) WorkerCount() int {
 
 // isRelevantProcess checks whether a process in the lsof line is relevant
 func (fw *FileWatcher) isRelevantProcess(filePath, line string) bool {
+	if strings.TrimSpace(line) == "" {
+		return false
+	}
+
+	// Ignore header rows and lsof output lines that do not reference the requested file.
+	if strings.HasPrefix(strings.TrimSpace(line), "COMMAND") || !strings.Contains(line, filePath) {
+		return false
+	}
+
 	fields := strings.Fields(line)
 	if len(fields) < 2 {
 		return false

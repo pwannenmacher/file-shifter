@@ -718,6 +718,12 @@ mds        1234 user    3r   REG    8,1      100  12345 /tmp/test-file.txt`,
 myapp      %d user    3r   REG    8,1      100  12345 /tmp/test-file.txt`, os.Getpid()),
 			expected: false,
 		},
+		{
+			name: "busybox lsof output without target path should be ignored",
+			lsofOutput: `1       /app/main       0       /dev/null
+200     /bin/busybox    1       pipe:[123456]`,
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {
