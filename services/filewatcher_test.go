@@ -352,6 +352,43 @@ func TestFileWatcher_ProcessFile_DeduplicatesSamePath(t *testing.T) {
 	}
 }
 
+func TestFileWatcher_ProcessFile_RejectsSymlink(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "process_file_symlink_test_*")
+	defer cleanup()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("Symlink test skipped on Windows")
+	}
+
+	s3Manager := NewS3ClientManager()
+	defer s3Manager.Close()
+
+	targets := []config.OutputTarget{{Type: "filesystem", Path: tempDir}}
+	fileHandler := NewFileHandler(targets, s3Manager)
+
+	watcher, err := NewFileWatcher(tempDir, fileHandler, 2, 1*time.Millisecond, 1*time.Millisecond, 1, 10)
+	if err != nil {
+		t.Fatalf("Fehler beim Erstellen des FileWatchers: %v", err)
+	}
+	defer watcher.watcher.Close()
+
+	realFile := filepath.Join(tempDir, "real.txt")
+	if err := os.WriteFile(realFile, []byte("content"), 0644); err != nil {
+		t.Fatalf("Fehler beim Erstellen der echten Datei: %v", err)
+	}
+
+	symlinkPath := filepath.Join(tempDir, "link.txt")
+	if err := os.Symlink(realFile, symlinkPath); err != nil {
+		t.Fatalf("Fehler beim Erstellen des Symlinks: %v", err)
+	}
+
+	watcher.processFile(symlinkPath)
+
+	if got := len(watcher.fileQueue); got != 0 {
+		t.Fatalf("Symlink darf nicht in der Queue landen, Queue-Größe ist %d", got)
+	}
+}
+
 func TestFileWatcher_ProcessExistingFiles(t *testing.T) {
 	tempDir, cleanup := setupTempDir(t, "existing_files_test_*")
 	defer cleanup()

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -37,6 +38,9 @@ type FileWatcher struct {
 	// Deduplicate file events so each file is queued at most once at a time.
 	processingFiles map[string]struct{}
 	processingMutex sync.Mutex
+	producersWG     sync.WaitGroup
+	stopOnce        sync.Once
+	stopping        atomic.Bool
 }
 
 func NewFileWatcher(inputDir string, fileHandler *FileHandler, maxRetries int, checkInterval, stabilityPeriod time.Duration, workerCount, queueSize int) (*FileWatcher, error) {
@@ -75,7 +79,11 @@ func (fw *FileWatcher) Start() error {
 	slog.Info("File-Watcher started", "directory", fw.inputDir)
 
 	// Process existing files at startup
-	go fw.processExistingFiles()
+	fw.producersWG.Add(1)
+	go func() {
+		defer fw.producersWG.Done()
+		fw.processExistingFiles()
+	}()
 
 	// Start worker pool
 	fw.startWorkers()
@@ -92,7 +100,11 @@ func (fw *FileWatcher) Start() error {
 				return nil
 			}
 			// Avoid blocking the event loop for too long
-			go fw.handleEvent(event)
+			fw.producersWG.Add(1)
+			go func(evt fsnotify.Event) {
+				defer fw.producersWG.Done()
+				fw.handleEvent(evt)
+			}(event)
 
 		case err, ok := <-fw.watcher.Errors:
 			if !ok {
@@ -104,14 +116,21 @@ func (fw *FileWatcher) Start() error {
 }
 
 func (fw *FileWatcher) Stop() {
-	close(fw.fileQueue) // Close the queue to terminate workers
-	fw.workers.Wait()   // Wait until all workers have finished
-	fw.stopChan <- true
-	err := fw.watcher.Close()
-	if err != nil {
-		slog.Error("Error closing file watcher", "error", err)
-	}
-	slog.Info("File-Watcher completely stopped")
+	fw.stopOnce.Do(func() {
+		fw.stopping.Store(true)
+		close(fw.stopChan)
+
+		if err := fw.watcher.Close(); err != nil {
+			slog.Error("Error closing file watcher", "error", err)
+		}
+
+		// Wait for all producer goroutines to stop enqueuing new files before closing the queue.
+		fw.producersWG.Wait()
+		close(fw.fileQueue)
+		fw.workers.Wait()
+
+		slog.Info("File-Watcher completely stopped")
+	})
 }
 
 func (fw *FileWatcher) addRecursiveWatcher(root string) error {
@@ -165,7 +184,7 @@ func (fw *FileWatcher) handleRemoveEvent(event fsnotify.Event) {
 
 // handleModificationEvent handles file creation, modification, or permission change events
 func (fw *FileWatcher) handleModificationEvent(event fsnotify.Event) {
-	info, err := os.Stat(event.Name)
+	info, err := os.Lstat(event.Name)
 	if err != nil {
 		slog.Debug("Error reading file info", "file", event.Name, "error", err)
 		return
@@ -176,7 +195,7 @@ func (fw *FileWatcher) handleModificationEvent(event fsnotify.Event) {
 		return
 	}
 
-	go fw.processFile(event.Name)
+	fw.processFile(event.Name)
 }
 
 // handleDirectoryCreation handles new directory creation events
@@ -203,7 +222,7 @@ func (fw *FileWatcher) handleDirectoryCreation(event fsnotify.Event) {
 			return err
 		}
 		if !info.IsDir() {
-			go fw.processFile(path)
+			fw.processFile(path)
 		}
 		return nil
 	})
@@ -213,9 +232,23 @@ func (fw *FileWatcher) handleDirectoryCreation(event fsnotify.Event) {
 }
 
 func (fw *FileWatcher) processFile(filePath string) {
+	if fw.stopping.Load() {
+		return
+	}
+
 	// Check whether the file still exists (it may have been deleted in the meantime).
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+	fileInfo, err := os.Lstat(filePath)
+	if os.IsNotExist(err) {
 		slog.Debug("File no longer exists", "file", filePath)
+		return
+	}
+	if err != nil {
+		slog.Debug("Error reading file info", "file", filePath, "error", err)
+		return
+	}
+
+	if fileInfo.Mode()&os.ModeSymlink != 0 {
+		slog.Warn("Rejecting symlink file", "file", filePath)
 		return
 	}
 
@@ -225,7 +258,7 @@ func (fw *FileWatcher) processFile(filePath string) {
 	}
 
 	fileName := filepath.Base(filePath)
-	if fileName[0] == '.' || fileName[0] == '~' {
+	if fileName == "" || fileName[0] == '.' || fileName[0] == '~' {
 		fw.unmarkFileForProcessing(filePath)
 		slog.Debug("Ignore temporary/hidden file", "file", filePath)
 		return
@@ -245,8 +278,18 @@ func (fw *FileWatcher) processFile(filePath string) {
 
 // enqueueFileWithMonitoring adds a file to the queue and monitors capacity
 func (fw *FileWatcher) enqueueFileWithMonitoring(filePath string) {
+	if fw.stopping.Load() {
+		fw.unmarkFileForProcessing(filePath)
+		return
+	}
+
 	// Add file to queue
-	fw.fileQueue <- filePath
+	select {
+	case <-fw.stopChan:
+		fw.unmarkFileForProcessing(filePath)
+		return
+	case fw.fileQueue <- filePath:
+	}
 
 	// Queue monitoring after adding
 	fw.checkQueueCapacity()
