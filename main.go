@@ -77,7 +77,7 @@ func main() {
 
 	// Validate CLI configuration
 	if err := cliCfg.Validate(); err != nil {
-		fmt.Fprintf(os.Stderr, "Fehler in Kommandozeilen-Argumenten: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Fehler in Kommandozeilen-Argumenten: %v\n", err)
 		os.Exit(1)
 	}
 
