@@ -8,6 +8,7 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -54,8 +55,8 @@ jobs:
       - name: Run Tests with Coverage
         run: go test -v -coverprofile=coverage.out -covermode=atomic ./...
 
-      - name: Generate Version (main branch only)
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      - name: Generate Version (manual release only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
         id: version
         uses: mathieudutour/github-tag-action@v6.2
         with:
@@ -69,10 +70,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-  # Job 2: GitHub Release erstellen (nur bei main branch pushes)
+  # Job 2: GitHub Release erstellen (nur bei manuellem Trigger)
   create-release:
     needs: build-test-analyze
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.build-test-analyze.outputs.new-version != ''
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && needs.build-test-analyze.outputs.new-version != ''
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -87,10 +88,10 @@ jobs:
           draft: false
           prerelease: false
 
-  # Job 3: Multi-Arch Docker Build und Push (nur bei main branch pushes nach erfolgreichem Release)
+  # Job 3: Multi-Arch Docker Build und Push (nur bei manuellem Trigger nach erfolgreichem Release)
   docker-build-push:
     needs: [ build-test-analyze, create-release ]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.build-test-analyze.outputs.new-version != ''
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && needs.build-test-analyze.outputs.new-version != ''
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
