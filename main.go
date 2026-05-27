@@ -35,17 +35,30 @@ func (w *realWorkerService) Stop() {
 	w.worker.Stop()
 }
 
-func newRealWorkerService(inputDir string, outputTargets []config.OutputTarget, cfg *config.EnvConfig) workerService {
-	return &realWorkerService{worker: services.NewWorker(inputDir, outputTargets, cfg)}
+func newRealWorkerService(inputDir string, outputTargets []config.OutputTarget, cfg *config.EnvConfig) (workerService, error) {
+	worker, err := services.NewWorker(inputDir, outputTargets, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &realWorkerService{worker: worker}, nil
 }
 
 func newRealHealthService(worker workerService, port string) healthService {
-	realWorker, ok := worker.(*realWorkerService)
-	if !ok {
-		panic("invalid worker service implementation")
+	// This factory safely handles the workerService interface.
+	// It attempts to extract the underlying *services.Worker from *realWorkerService.
+	// If a test mock is used instead, it returns a no-op implementation.
+	if realWorker, ok := worker.(*realWorkerService); ok {
+		return services.NewHealthMonitor(realWorker.worker, port)
 	}
-	return services.NewHealthMonitor(realWorker.worker, port)
+	// For test mocks or other implementations, return a no-op health monitor
+	return &noOpHealthMonitor{}
 }
+
+// noOpHealthMonitor is a no-op implementation of healthService for testing.
+type noOpHealthMonitor struct{}
+
+func (h *noOpHealthMonitor) Start() {}
+func (h *noOpHealthMonitor) Stop()  {}
 
 func loadEnvYaml() (*config.EnvConfig, error) {
 	// Check which files are available
@@ -109,7 +122,7 @@ func runApp(
 	parseCLI func() *config.CLIConfig,
 	loadEnvYamlFunc func() (*config.EnvConfig, error),
 	loadDotEnv func() error,
-	createWorker func(string, []config.OutputTarget, *config.EnvConfig) workerService,
+	createWorker func(string, []config.OutputTarget, *config.EnvConfig) (workerService, error),
 	createHealthMonitor func(workerService, string) healthService,
 	notifySignals func(chan<- os.Signal, ...os.Signal),
 ) int {
@@ -179,10 +192,14 @@ func runApp(
 	}
 
 	// Initialise and start workers
-	workerService := createWorker(inputDir, outputTargets, cfg)
+	workerSvc, err := createWorker(inputDir, outputTargets, cfg)
+	if err != nil {
+		slog.Error("Failed to create worker", "error", err)
+		return 1
+	}
 
 	// Start Health-Monitor
-	healthMonitor := createHealthMonitor(workerService, "8080")
+	healthMonitor := createHealthMonitor(workerSvc, "8080")
 	healthMonitor.Start()
 
 	// Graceful Shutdown Handler
@@ -193,11 +210,11 @@ func runApp(
 		<-sigChan
 		slog.Info("Shutdown signal received...")
 		healthMonitor.Stop()
-		workerService.Stop()
+		workerSvc.Stop()
 	}()
 
 	// Start worker (blocked until Stop is called)
-	workerService.Start()
+	workerSvc.Start()
 	return 0
 }
 

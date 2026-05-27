@@ -44,8 +44,8 @@ func TestRunApp_CLIValidationError(t *testing.T) {
 		func() *config.CLIConfig { return &config.CLIConfig{LogLevel: "INVALID"} },
 		func() (*config.EnvConfig, error) { return &config.EnvConfig{}, nil },
 		func() error { return nil },
-		func(string, []config.OutputTarget, *config.EnvConfig) workerService {
-			return &fakeWorker{done: make(chan struct{})}
+		func(string, []config.OutputTarget, *config.EnvConfig) (workerService, error) {
+			return &fakeWorker{done: make(chan struct{})}, nil
 		},
 		func(workerService, string) healthService { return &fakeHealthMonitor{} },
 		func(chan<- os.Signal, ...os.Signal) {},
@@ -61,8 +61,8 @@ func TestRunApp_ApplyCLIError(t *testing.T) {
 		func() *config.CLIConfig { return &config.CLIConfig{OutputsJSON: "{"} },
 		func() (*config.EnvConfig, error) { return &config.EnvConfig{}, nil },
 		func() error { return nil },
-		func(string, []config.OutputTarget, *config.EnvConfig) workerService {
-			return &fakeWorker{done: make(chan struct{})}
+		func(string, []config.OutputTarget, *config.EnvConfig) (workerService, error) {
+			return &fakeWorker{done: make(chan struct{})}, nil
 		},
 		func(workerService, string) healthService { return &fakeHealthMonitor{} },
 		func(chan<- os.Signal, ...os.Signal) {},
@@ -84,10 +84,10 @@ func TestRunApp_DefaultOutputsAndShutdownFlow(t *testing.T) {
 		func() *config.CLIConfig { return &config.CLIConfig{} },
 		func() (*config.EnvConfig, error) { return nil, os.ErrNotExist },
 		func() error { return nil },
-		func(input string, targets []config.OutputTarget, _ *config.EnvConfig) workerService {
+		func(input string, targets []config.OutputTarget, _ *config.EnvConfig) (workerService, error) {
 			capturedInput = input
 			capturedTargets = targets
-			return worker
+			return worker, nil
 		},
 		func(_ workerService, _ string) healthService { return health },
 		func(ch chan<- os.Signal, _ ...os.Signal) {
@@ -126,9 +126,9 @@ func TestRunApp_UsesConfiguredOutputsWithoutDefaultFallback(t *testing.T) {
 		func() *config.CLIConfig { return &config.CLIConfig{} },
 		func() (*config.EnvConfig, error) { return configured, nil },
 		func() error { return nil },
-		func(_ string, targets []config.OutputTarget, _ *config.EnvConfig) workerService {
+		func(_ string, targets []config.OutputTarget, _ *config.EnvConfig) (workerService, error) {
 			capturedTargets = targets
-			return worker
+			return worker, nil
 		},
 		func(_ workerService, _ string) healthService { return health },
 		func(ch chan<- os.Signal, _ ...os.Signal) {
@@ -141,5 +141,22 @@ func TestRunApp_UsesConfiguredOutputsWithoutDefaultFallback(t *testing.T) {
 	}
 	if len(capturedTargets) != 1 || capturedTargets[0].Path != "/tmp/custom" {
 		t.Fatalf("expected configured outputs to be preserved, got %+v", capturedTargets)
+	}
+}
+
+func TestRunApp_WorkerCreationFailure(t *testing.T) {
+	code := runApp(
+		func() *config.CLIConfig { return &config.CLIConfig{} },
+		func() (*config.EnvConfig, error) { return &config.EnvConfig{}, nil },
+		func() error { return nil },
+		func(_ string, _ []config.OutputTarget, _ *config.EnvConfig) (workerService, error) {
+			return nil, os.ErrPermission
+		},
+		func(_ workerService, _ string) healthService { return &fakeHealthMonitor{} },
+		func(chan<- os.Signal, ...os.Signal) {},
+	)
+
+	if code != 1 {
+		t.Fatalf("expected exit code 1 for worker creation failure, got %d", code)
 	}
 }

@@ -98,7 +98,10 @@ func TestNewWorker_ValidInput(t *testing.T) {
 
 	targets := createFilesystemTargets()
 	cfg := createDefaultConfig()
-	worker := NewWorker(tempDir, targets, cfg)
+	worker, err := NewWorker(tempDir, targets, cfg)
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
 
 	assertWorkerBasics(t, worker, tempDir, 1)
 }
@@ -113,7 +116,10 @@ func TestNewWorker_NonExistentInputDir(t *testing.T) {
 
 	targets := createFilesystemTargets()
 	cfg := createDefaultConfig()
-	worker := NewWorker(nonExistentDir, targets, cfg)
+	worker, err := NewWorker(nonExistentDir, targets, cfg)
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
 
 	assertWorkerBasics(t, worker, nonExistentDir, 1)
 
@@ -129,7 +135,10 @@ func TestNewWorker_EmptyTargets(t *testing.T) {
 
 	var targets []config.OutputTarget
 	cfg := createDefaultConfig()
-	worker := NewWorker(tempDir, targets, cfg)
+	worker, err := NewWorker(tempDir, targets, cfg)
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
 
 	assertWorkerBasics(t, worker, tempDir, 0)
 }
@@ -141,7 +150,10 @@ func TestNewWorker_FilesystemTarget(t *testing.T) {
 	expectedPath := "/tmp/test-output"
 	targets := createFilesystemTargets(expectedPath)
 	cfg := createDefaultConfig()
-	worker := NewWorker(tempDir, targets, cfg)
+	worker, err := NewWorker(tempDir, targets, cfg)
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
 
 	assertWorkerBasics(t, worker, tempDir, 1)
 	assertTargets(t, worker.OutputTargets, []string{expectedPath})
@@ -154,7 +166,10 @@ func TestNewWorker_MultipleTargets(t *testing.T) {
 	expectedPaths := []string{"/tmp/output1", "/tmp/output2"}
 	targets := createFilesystemTargets(expectedPaths...)
 	cfg := createDefaultConfig()
-	worker := NewWorker(tempDir, targets, cfg)
+	worker, err := NewWorker(tempDir, targets, cfg)
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
 
 	assertWorkerBasics(t, worker, tempDir, 2)
 	assertTargets(t, worker.OutputTargets, expectedPaths)
@@ -166,7 +181,10 @@ func TestNewWorker_StopChannelInitialized(t *testing.T) {
 
 	targets := createFilesystemTargets()
 	cfg := createDefaultConfig()
-	worker := NewWorker(tempDir, targets, cfg)
+	worker, err := NewWorker(tempDir, targets, cfg)
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
 
 	assertWorkerBasics(t, worker, tempDir, 1)
 	// stopChan wird bereits in assertWorkerBasics -> assertWorkerComponents geprüft
@@ -178,7 +196,10 @@ func TestNewWorker_ComponentsProperlyInitialized(t *testing.T) {
 
 	targets := createFilesystemTargets()
 	cfg := createDefaultConfig()
-	worker := NewWorker(tempDir, targets, cfg)
+	worker, err := NewWorker(tempDir, targets, cfg)
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
 
 	assertWorkerBasics(t, worker, tempDir, 1)
 	// Detaillierte Komponentenprüfung wird bereits in assertWorkerComponents durchgeführt
@@ -192,7 +213,10 @@ func TestNewWorker_InputDirValidation(t *testing.T) {
 	specialDir := filepath.Join(tempBaseDir, "test dir with spaces")
 	targets := createFilesystemTargets()
 	cfg := createDefaultConfig()
-	worker := NewWorker(specialDir, targets, cfg)
+	worker, err := NewWorker(specialDir, targets, cfg)
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
 
 	assertWorkerBasics(t, worker, specialDir, 1)
 
@@ -209,15 +233,51 @@ func TestNewWorker_DifferentTargetTypes(t *testing.T) {
 	expectedPaths := []string{"/tmp/output1", "/tmp/output2"}
 	targets := createFilesystemTargets(expectedPaths...)
 	cfg := createDefaultConfig()
-	worker := NewWorker(tempDir, targets, cfg)
+	worker, err := NewWorker(tempDir, targets, cfg)
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
 
 	assertWorkerBasics(t, worker, tempDir, 2)
 	assertTargets(t, worker.OutputTargets, expectedPaths)
 }
 
-// Hinweis: Tests für ungültige Eingaben (leerer InputDir, ungültige S3-Konfiguration)
-// führen zu os.Exit(1) und können daher nicht einfach getestet werden.
-// Diese würden separate Test-Funktionen erfordern, die in einem subprocess laufen.
+// Test für Fehlerfall: Leeres Input-Verzeichnis
+func TestNewWorker_EmptyInputDir(t *testing.T) {
+	targets := createFilesystemTargets()
+	cfg := createDefaultConfig()
+	worker, err := NewWorker("", targets, cfg)
+
+	if err == nil {
+		t.Error("Expected error for empty input directory, but got none")
+	}
+	if worker != nil {
+		t.Error("Worker should be nil when error occurs")
+	}
+}
+
+// Test für Fehlerfall: Ungültige S3-Konfiguration
+func TestNewWorker_InvalidS3Config(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "worker_s3_invalid_*")
+	defer cleanup()
+
+	targets := []config.OutputTarget{
+		{
+			Type: "s3",
+			Path: "s3://bucket/path",
+			// Missing required fields: Endpoint, AccessKey, SecretKey, Region
+		},
+	}
+	cfg := createDefaultConfig()
+	worker, err := NewWorker(tempDir, targets, cfg)
+
+	if err == nil {
+		t.Error("Expected error for invalid S3 configuration, but got none")
+	}
+	if worker != nil {
+		t.Error("Worker should be nil when error occurs")
+	}
+}
 
 func TestWorker_StartAndStop(t *testing.T) {
 	tempDir, cleanup := setupTempDir(t, "worker_start_stop_*")
@@ -225,7 +285,10 @@ func TestWorker_StartAndStop(t *testing.T) {
 
 	targets := createFilesystemTargets()
 	cfg := createDefaultConfig()
-	worker := NewWorker(tempDir, targets, cfg)
+	worker, err := NewWorker(tempDir, targets, cfg)
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
 
 	// Use a channel to signal when Start() begins
 	started := make(chan bool, 1)
@@ -328,7 +391,10 @@ func TestNewWorker_MixedTargets(t *testing.T) {
 	}
 
 	cfg := createDefaultConfig()
-	worker := NewWorker(tempDir, targets, cfg)
+	worker, err := NewWorker(tempDir, targets, cfg)
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
 
 	assertWorkerBasics(t, worker, tempDir, 2)
 
@@ -346,7 +412,10 @@ func TestWorker_ComponentInitialization(t *testing.T) {
 
 	targets := createFilesystemTargets()
 	cfg := createDefaultConfig()
-	worker := NewWorker(tempDir, targets, cfg)
+	worker, err := NewWorker(tempDir, targets, cfg)
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
 
 	// Verify S3ClientManager is properly initialized
 	if worker.S3ClientManager == nil {
@@ -386,7 +455,7 @@ func BenchmarkNewWorker(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		cfg := createDefaultConfig()
-		_ = NewWorker(tempDir, targets, cfg)
+		_, _ = NewWorker(tempDir, targets, cfg)
 		// Don't call Stop() in benchmark to avoid blocking
 	}
 }
@@ -404,8 +473,14 @@ func BenchmarkWorker_StartStop(b *testing.B) {
 
 // Test validation functions that currently have 0% coverage
 func TestWorker_validateS3Target(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "validation_test_*")
+	defer cleanup()
+
 	cfg := createDefaultConfig()
-	worker := NewWorker("/tmp", []config.OutputTarget{}, cfg)
+	worker, err := NewWorker(tempDir, []config.OutputTarget{}, cfg)
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
 
 	tests := []struct {
 		name        string
@@ -484,8 +559,14 @@ func TestWorker_validateS3Target(t *testing.T) {
 }
 
 func TestWorker_validateFTPTarget(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "ftp_validation_*")
+	defer cleanup()
+
 	cfg := createDefaultConfig()
-	worker := NewWorker("/tmp", []config.OutputTarget{}, cfg)
+	worker, err := NewWorker(tempDir, []config.OutputTarget{}, cfg)
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
 
 	tests := []struct {
 		name        string
@@ -565,11 +646,14 @@ func TestWorker_validateFTPTarget(t *testing.T) {
 }
 
 func TestWorker_validateFilesystemTarget(t *testing.T) {
-	cfg := createDefaultConfig()
-	worker := NewWorker("/tmp", []config.OutputTarget{}, cfg)
-
 	tempDir, cleanup := setupTempDir(t, "filesystem_validation_*")
 	defer cleanup()
+
+	cfg := createDefaultConfig()
+	worker, err := NewWorker(tempDir, []config.OutputTarget{}, cfg)
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
 
 	tests := []struct {
 		name        string
@@ -608,8 +692,14 @@ func TestWorker_validateFilesystemTarget(t *testing.T) {
 }
 
 func TestWorker_validateSingleTarget(t *testing.T) {
+	tempDir, cleanup := setupTempDir(t, "single_target_validation_*")
+	defer cleanup()
+
 	cfg := createDefaultConfig()
-	worker := NewWorker("/tmp", []config.OutputTarget{}, cfg)
+	worker, err := NewWorker(tempDir, []config.OutputTarget{}, cfg)
+	if err != nil {
+		t.Fatalf("NewWorker failed: %v", err)
+	}
 
 	tests := []struct {
 		name        string

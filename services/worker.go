@@ -17,7 +17,7 @@ type Worker struct {
 	FileWatcher     *FileWatcher
 }
 
-func NewWorker(dir string, targets []config.OutputTarget, cfg *config.EnvConfig) *Worker {
+func NewWorker(dir string, targets []config.OutputTarget, cfg *config.EnvConfig) (*Worker, error) {
 
 	w := &Worker{
 		stopChan:        make(chan bool),
@@ -27,20 +27,17 @@ func NewWorker(dir string, targets []config.OutputTarget, cfg *config.EnvConfig)
 	}
 
 	if dir == "" {
-		slog.Error("Input directory must not be empty")
-		os.Exit(1)
+		return nil, fmt.Errorf("input directory must not be empty")
 	}
 
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			slog.Error("Error creating input directory", "inputDir", dir, "error", err)
-			os.Exit(1)
+			return nil, fmt.Errorf("error creating input directory %s: %w", dir, err)
 		}
 	}
 
 	if err := w.validateTargets(targets); err != nil {
-		slog.Error("Target validation failed", "error", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("target validation failed: %w", err)
 	}
 
 	w.FileHandler = NewFileHandler(targets, w.S3ClientManager)
@@ -51,12 +48,11 @@ func NewWorker(dir string, targets []config.OutputTarget, cfg *config.EnvConfig)
 
 	fileWatcher, err := NewFileWatcher(dir, w.FileHandler, maxRetries, checkInterval, stabilityPeriod, cfg.WorkerPool.Workers, cfg.WorkerPool.QueueSize)
 	if err != nil {
-		slog.Error("Error initializing file watcher", "err", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("error initializing file watcher: %w", err)
 	}
 	w.FileWatcher = fileWatcher
 
-	return w
+	return w, nil
 }
 
 func (w *Worker) Start() {

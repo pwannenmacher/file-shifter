@@ -22,7 +22,10 @@ func TestHealthMonitor(t *testing.T) { // NOSONAR - umfassender Health-Endpunkt-
 	}
 
 	// Create worker
-	worker := NewWorker(inputDir, outputTargets, cfg)
+	worker, err := NewWorker(inputDir, outputTargets, cfg)
+	if err != nil {
+		t.Fatalf("Failed to create worker: %v", err)
+	}
 
 	// Start worker in background
 	go worker.Start()
