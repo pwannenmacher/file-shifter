@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestLoadEnvYaml(t *testing.T) {
+func TestLoadEnvYaml(t *testing.T) { // NOSONAR - umfangreicher Integrations-Testfall
 	tests := []struct {
 		name           string
 		setupFiles     func(t *testing.T)

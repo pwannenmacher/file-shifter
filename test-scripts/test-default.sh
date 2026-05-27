@@ -53,7 +53,7 @@ echo ""
 echo "=== Ergebnisse ==="
 
 echo "Input-Directory:"
-if [ -d "input" ] && [ "$(find input -type f 2>/dev/null | wc -l)" -gt 0 ]; then
+if [[ -d "input" ]] && [[ "$(find input -type f 2>/dev/null | wc -l)" -gt 0 ]]; then
     find input -type f 2>/dev/null || echo "Keine Dateien"
     echo "❌ Dateien noch im Input-Directory"
 else
@@ -62,7 +62,7 @@ fi
 
 echo ""
 echo "Output-Directory:"
-if [ -d "output" ] && [ "$(find output -type f 2>/dev/null | wc -l)" -gt 0 ]; then
+if [[ -d "output" ]] && [[ "$(find output -type f 2>/dev/null | wc -l)" -gt 0 ]]; then
     find output -type f 2>/dev/null
     echo "✅ Dateien in Output-Directory gefunden"
 else

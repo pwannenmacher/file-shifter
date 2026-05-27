@@ -14,8 +14,8 @@ echo "✅ Build erfolgreich"
 rm -rf input output1 output2 2>/dev/null
 
 # Backup vorhandener Konfigurationsdateien
-[ -f .env ] && cp .env .env.backup.test
-[ -f env.yaml ] && cp env.yaml env.yaml.backup.test
+[[ -f .env ]] && cp .env .env.backup.test
+[[ -f env.yaml ]] && cp env.yaml env.yaml.backup.test
 rm -f .env env.yaml 2>/dev/null
 
 echo "Erstelle Test-Umgebung mit env.yaml-Konfiguration..."
@@ -68,7 +68,7 @@ echo ""
 echo "=== Ergebnisse ==="
 
 echo "Input-Directory:"
-if [ -d "input" ] && [ "$(find input -type f 2>/dev/null | wc -l)" -gt 0 ]; then
+if [[ -d "input" ]] && [[ "$(find input -type f 2>/dev/null | wc -l)" -gt 0 ]]; then
     find input -type f 2>/dev/null || echo "Keine Dateien"
     echo "❌ Dateien noch im Input-Directory"
 else
@@ -77,7 +77,7 @@ fi
 
 echo ""
 echo "Output1-Directory:"
-if [ -d "output1" ] && [ "$(find output1 -type f 2>/dev/null | wc -l)" -gt 0 ]; then
+if [[ -d "output1" ]] && [[ "$(find output1 -type f 2>/dev/null | wc -l)" -gt 0 ]]; then
     find output1 -type f 2>/dev/null
     echo "✅ Dateien in Output1 gefunden"
 else
@@ -86,7 +86,7 @@ fi
 
 echo ""
 echo "Output2-Directory:"
-if [ -d "output2" ] && [ "$(find output2 -type f 2>/dev/null | wc -l)" -gt 0 ]; then
+if [[ -d "output2" ]] && [[ "$(find output2 -type f 2>/dev/null | wc -l)" -gt 0 ]]; then
     find output2 -type f 2>/dev/null
     echo "✅ Dateien in Output2 gefunden"
 else
@@ -98,6 +98,6 @@ echo "Test mit env.yaml für Filesystem-Ziele abgeschlossen."
 
 # Cleanup: Entferne temporäre Dateien und stelle Backup wieder her
 rm -f file-shifter env.yaml
-[ -f .env.backup.test ] && mv .env.backup.test .env
-[ -f env.yaml.backup.test ] && mv env.yaml.backup.test env.yaml
+[[ -f .env.backup.test ]] && mv .env.backup.test .env
+[[ -f env.yaml.backup.test ]] && mv env.yaml.backup.test env.yaml
 echo "🧹 Aufgeräumt und Original-Konfiguration wiederhergestellt"

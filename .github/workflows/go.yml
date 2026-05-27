@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: read
   issues: read
   repository-projects: read
@@ -75,6 +75,8 @@ jobs:
     needs: build-test-analyze
     if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && needs.build-test-analyze.outputs.new-version != ''
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v6

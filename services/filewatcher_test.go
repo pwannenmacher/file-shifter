@@ -12,7 +12,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-func TestNewFileWatcher(t *testing.T) {
+func TestNewFileWatcher(t *testing.T) { // NOSONAR - deckt viele Konfigurationspfade ab
 	tempDir, cleanup := setupTempDir(t, "filewatcher_test_*")
 	defer cleanup()
 
@@ -134,7 +134,7 @@ func TestFileWatcher_AddRecursiveWatcher(t *testing.T) {
 	}
 }
 
-func TestFileWatcher_HandleEvent(t *testing.T) {
+func TestFileWatcher_HandleEvent(t *testing.T) { // NOSONAR - Event-Matrix bewusst zusammengefasst
 	tempDir, cleanup := setupTempDir(t, "handle_event_test_*")
 	defer cleanup()
 

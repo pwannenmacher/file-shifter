@@ -202,7 +202,7 @@ func TestCreateSSHConfig(t *testing.T) {
 }
 
 // Tests für calculateFileChecksum
-func TestFileHandler_calculateFileChecksum_Extended(t *testing.T) {
+func TestFileHandler_calculateFileChecksum_Extended(t *testing.T) { // NOSONAR - viele Randfall-Kombinationen
 	tempDir, err := os.MkdirTemp("", "checksum_test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -285,7 +285,7 @@ func TestFileHandler_calculateFileChecksum_Extended(t *testing.T) {
 }
 
 // Tests für Delete-Funktionen
-func TestFileHandler_deleteFromFilesystem_Extended(t *testing.T) {
+func TestFileHandler_deleteFromFilesystem_Extended(t *testing.T) { // NOSONAR - umfangreiche Dateisystem-Szenarien
 	tempDir, err := os.MkdirTemp("", "delete_fs_test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -614,7 +614,7 @@ func TestNewFileHandler(t *testing.T) {
 	}
 }
 
-func TestFileHandler_copyToFilesystem(t *testing.T) {
+func TestFileHandler_copyToFilesystem(t *testing.T) { // NOSONAR - mehrere Transfer-/Fehlerpfade
 	// Create temporary directories for testing
 	tempDir, err := os.MkdirTemp("", "filehandler_test")
 	if err != nil {

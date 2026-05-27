@@ -31,7 +31,7 @@ wait $PID 2>/dev/null || true
 # Prüfe Ergebnisse
 echo ""
 echo "=== Ergebnisse ==="
-if [ -d "output1" ] && [ -f "output1/old-env.txt" ]; then
+if [[ -d "output1" ]] && [[ -f "output1/old-env.txt" ]]; then
     echo "✅ Alte ENV-Struktur funktioniert"
 else
     echo "❌ Alte ENV-Struktur funktioniert nicht"

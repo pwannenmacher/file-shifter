@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestHealthMonitor(t *testing.T) {
+func TestHealthMonitor(t *testing.T) { // NOSONAR - umfassender Health-Endpunkt-Test
 	// Create test configuration
 	cfg := &config.EnvConfig{}
 	cfg.SetDefaults()

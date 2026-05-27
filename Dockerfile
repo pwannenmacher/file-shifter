@@ -24,14 +24,14 @@ WORKDIR /app
 COPY --from=builder /app/main /app/main
 
 # Volumes for input/output directories
-RUN mkdir -p /app/input /app/output
-RUN chmod -R 755 /app/input /app/output
+RUN mkdir -p /app/input /app/output \
+    && chmod -R 755 /app/input /app/output
 VOLUME ["/app/input"]
 VOLUME ["/app/output"]
 
 # User for security
-RUN adduser -D -s /bin/sh appuser
-RUN chown -R appuser:appuser /app
+RUN adduser -D -s /bin/sh appuser \
+    && chown -R appuser:appuser /app
 USER appuser
 
 # Expose health-check port

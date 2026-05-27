@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestNewMinIOConnection(t *testing.T) {
+func TestNewMinIOConnection(t *testing.T) { // NOSONAR - matrixartiger Konfigurations-Test
 	tests := []struct {
 		name      string
 		endpoint  string
@@ -225,7 +225,7 @@ func TestMinIO_ContentTypeDetection(t *testing.T) {
 }
 
 // More comprehensive tests for functions with low coverage
-func TestMinIO_EnsureBucket(t *testing.T) {
+func TestMinIO_EnsureBucket(t *testing.T) { // NOSONAR - umfangreiche Fehler-/Erfolgsszenarien
 	tests := []struct {
 		name        string
 		client      *MinIO

@@ -14,8 +14,8 @@ echo "✅ Build erfolgreich"
 rm -rf input 2>/dev/null
 
 # Backup vorhandener Konfigurationsdateien
-[ -f .env ] && cp .env .env.backup.test
-[ -f env.yaml ] && cp env.yaml env.yaml.backup.test
+[[ -f .env ]] && cp .env .env.backup.test
+[[ -f env.yaml ]] && cp env.yaml env.yaml.backup.test
 rm -f .env env.yaml 2>/dev/null
 
 # Prüfe ob MinIO läuft
@@ -78,7 +78,7 @@ echo ""
 echo "=== Ergebnisse ==="
 
 echo "Input-Directory:"
-if [ -d "input" ] && [ "$(find input -type f 2>/dev/null | wc -l)" -gt 0 ]; then
+if [[ -d "input" ]] && [[ "$(find input -type f 2>/dev/null | wc -l)" -gt 0 ]]; then
     find input -type f 2>/dev/null || echo "Keine Dateien"
     echo "❌ Dateien noch im Input-Directory"
 else
@@ -106,6 +106,6 @@ echo "Test mit .env für S3-Ziele abgeschlossen."
 
 # Cleanup: Entferne temporäre Dateien und stelle Backup wieder her
 rm -f file-shifter .env
-[ -f .env.backup.test ] && mv .env.backup.test .env
-[ -f env.yaml.backup.test ] && mv env.yaml.backup.test env.yaml
+[[ -f .env.backup.test ]] && mv .env.backup.test .env
+[[ -f env.yaml.backup.test ]] && mv env.yaml.backup.test env.yaml
 echo "🧹 Aufgeräumt und Original-Konfiguration wiederhergestellt"

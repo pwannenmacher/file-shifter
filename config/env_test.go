@@ -162,7 +162,7 @@ func TestEnvConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestEnvConfig_LoadFromEnvironment(t *testing.T) {
+func TestEnvConfig_LoadFromEnvironment(t *testing.T) { // NOSONAR - umfassende ENV-Matrix in einem Test
 	// Backup current environment
 	originalEnv := backupEnvironment()
 	defer restoreEnvironment(originalEnv)
@@ -1003,7 +1003,7 @@ func clearFileStabilityEnv() {
 	}
 }
 
-func TestEnvConfig_LoadOutputFromYAMLEnv(t *testing.T) {
+func TestEnvConfig_LoadOutputFromYAMLEnv(t *testing.T) { // NOSONAR - viele YAML-ENV-Varianten in einem Test
 	tests := []struct {
 		name        string
 		setupEnv    func()
