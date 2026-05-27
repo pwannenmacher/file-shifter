@@ -13,6 +13,53 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type workerService interface {
+	Start()
+	Stop()
+}
+
+type healthService interface {
+	Start()
+	Stop()
+}
+
+type realWorkerService struct {
+	worker *services.Worker
+}
+
+func (w *realWorkerService) Start() {
+	w.worker.Start()
+}
+
+func (w *realWorkerService) Stop() {
+	w.worker.Stop()
+}
+
+func newRealWorkerService(inputDir string, outputTargets []config.OutputTarget, cfg *config.EnvConfig) (workerService, error) {
+	worker, err := services.NewWorker(inputDir, outputTargets, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &realWorkerService{worker: worker}, nil
+}
+
+func newRealHealthService(worker workerService, port string) healthService {
+	// This factory safely handles the workerService interface.
+	// It attempts to extract the underlying *services.Worker from *realWorkerService.
+	// If a test mock is used instead, it returns a no-op implementation.
+	if realWorker, ok := worker.(*realWorkerService); ok {
+		return services.NewHealthMonitor(realWorker.worker, port)
+	}
+	// For test mocks or other implementations, return a no-op health monitor
+	return &noOpHealthMonitor{}
+}
+
+// noOpHealthMonitor is a no-op implementation of healthService for testing.
+type noOpHealthMonitor struct{}
+
+func (h *noOpHealthMonitor) Start() {}
+func (h *noOpHealthMonitor) Stop()  {}
+
 func loadEnvYaml() (*config.EnvConfig, error) {
 	// Check which files are available
 	yamlExists := fileExists("env.yaml")
@@ -71,14 +118,20 @@ func setupLogger(cfg *config.EnvConfig) {
 	slog.SetDefault(logger)
 }
 
-func main() {
-	// 1. Parsing command line arguments
-	cliCfg := config.ParseCLI()
+func runApp(
+	parseCLI func() *config.CLIConfig,
+	loadEnvYamlFunc func() (*config.EnvConfig, error),
+	loadDotEnv func() error,
+	createWorker func(string, []config.OutputTarget, *config.EnvConfig) (workerService, error),
+	createHealthMonitor func(workerService, string) healthService,
+	notifySignals func(chan<- os.Signal, ...os.Signal),
+) int {
+	cliCfg := parseCLI()
 
 	// Validate CLI configuration
 	if err := cliCfg.Validate(); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Fehler in Kommandozeilen-Argumenten: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	// 2. Configuration order:
@@ -87,13 +140,13 @@ func main() {
 	// - Load environment variables
 	// - Apply CLI parameters (overrides everything else)
 
-	cfg, err := loadEnvYaml()
+	cfg, err := loadEnvYamlFunc()
 	if err != nil {
 		fmt.Println("Konfigurationsdatei konnte nicht geladen werden:", err)
 		cfg = &config.EnvConfig{} // leere Konfiguration
 	}
 
-	_ = godotenv.Load()
+	_ = loadDotEnv()
 
 	// Set defaults
 	cfg.SetDefaults()
@@ -108,7 +161,7 @@ func main() {
 	err = cliCfg.ApplyToCfg(cfg)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Error applying CLI parameters: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	// Logger configuration
@@ -135,27 +188,46 @@ func main() {
 	// Validate configuration (after setting the default targets)
 	if err := cfg.Validate(); err != nil {
 		slog.Error("Invalid configuration", "error", err)
-		os.Exit(1)
+		return 1
 	}
 
 	// Initialise and start workers
-	workerService := services.NewWorker(inputDir, outputTargets, cfg)
+	workerSvc, err := createWorker(inputDir, outputTargets, cfg)
+	if err != nil {
+		slog.Error("Failed to create worker", "error", err)
+		return 1
+	}
 
 	// Start Health-Monitor
-	healthMonitor := services.NewHealthMonitor(workerService, "8080")
+	healthMonitor := createHealthMonitor(workerSvc, "8080")
 	healthMonitor.Start()
 
 	// Graceful Shutdown Handler
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	notifySignals(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		<-sigChan
 		slog.Info("Shutdown signal received...")
 		healthMonitor.Stop()
-		workerService.Stop()
+		workerSvc.Stop()
 	}()
 
 	// Start worker (blocked until Stop is called)
-	workerService.Start()
+	workerSvc.Start()
+	return 0
+}
+
+func main() {
+	code := runApp(
+		config.ParseCLI,
+		loadEnvYaml,
+		func() error { return godotenv.Load() },
+		newRealWorkerService,
+		newRealHealthService,
+		signal.Notify,
+	)
+	if code != 0 {
+		os.Exit(code)
+	}
 }
