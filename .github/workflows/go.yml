@@ -25,14 +25,6 @@ jobs:
   # Job 1: Build, Test und SonarCloud für PRs und main branch
   build-test-analyze:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: read
-      issues: read
-      repository-projects: read
-    outputs:
-      new-version: ${{ steps.version.outputs.new_tag }}
-      changelog: ${{ steps.version.outputs.changelog }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -60,8 +52,29 @@ jobs:
       - name: Run Tests with Coverage
         run: go test -v -coverprofile=coverage.out -covermode=atomic ./...
 
-      - name: Generate Version (manual release only)
-        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v8
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # Job 2: Version/Tag erstellen (nur bei manuellem Trigger)
+  generate-version:
+    needs: build-test-analyze
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      new-version: ${{ steps.version.outputs.new_tag }}
+      changelog: ${{ steps.version.outputs.changelog }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate Version
         id: version
         uses: mathieudutour/github-tag-action@v6.2
         with:
@@ -69,16 +82,10 @@ jobs:
           default_bump: patch
           release_branches: main
 
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@v8
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-  # Job 2: GitHub Release erstellen (nur bei manuellem Trigger)
+  # Job 3: GitHub Release erstellen (nur bei manuellem Trigger)
   create-release:
-    needs: build-test-analyze
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && needs.build-test-analyze.outputs.new-version != ''
+    needs: [ build-test-analyze, generate-version ]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && needs.generate-version.outputs.new-version != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -89,16 +96,16 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ needs.build-test-analyze.outputs.new-version }}
-          name: Release ${{ needs.build-test-analyze.outputs.new-version }}
-          body: ${{ needs.build-test-analyze.outputs.changelog }}
+          tag_name: ${{ needs.generate-version.outputs.new-version }}
+          name: Release ${{ needs.generate-version.outputs.new-version }}
+          body: ${{ needs.generate-version.outputs.changelog }}
           draft: false
           prerelease: false
 
-  # Job 3: Multi-Arch Docker Build und Push (nur bei manuellem Trigger nach erfolgreichem Release)
+  # Job 4: Multi-Arch Docker Build und Push (nur bei manuellem Trigger nach erfolgreichem Release)
   docker-build-push:
-    needs: [ build-test-analyze, create-release ]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && needs.build-test-analyze.outputs.new-version != ''
+    needs: [ build-test-analyze, create-release, generate-version ]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && needs.generate-version.outputs.new-version != ''
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -132,9 +139,9 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=semver,pattern={{version}},value=${{ needs.build-test-analyze.outputs.new-version }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ needs.build-test-analyze.outputs.new-version }}
-            type=semver,pattern={{major}},value=${{ needs.build-test-analyze.outputs.new-version }}
+            type=semver,pattern={{version}},value=${{ needs.generate-version.outputs.new-version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.generate-version.outputs.new-version }}
+            type=semver,pattern={{major}},value=${{ needs.generate-version.outputs.new-version }}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Multi-Arch Docker image

@@ -2,6 +2,7 @@ package services
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -184,7 +185,7 @@ func (fh *FileHandler) copyToAllTargets(filePath, relPath string, fileInfo os.Fi
 
 	if len(transferErrors) > 0 {
 		slog.Error("Not all transfers successful - original file retained", "file", relPath, "error", len(transferErrors))
-		return fmt.Errorf("transfers failed: %v", transferErrors)
+		return fmt.Errorf("transfers failed: %w", errors.Join(transferErrors...))
 	}
 
 	return nil
