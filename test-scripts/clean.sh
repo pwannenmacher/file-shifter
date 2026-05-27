@@ -54,7 +54,7 @@ if [[ -d .git ]]; then
         echo "Warnung: Es gibt uncommittete Änderungen im Git-Repository"
         read -p "Git-Repository zurücksetzen? (y/N): " -n 1 -r
         echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
             git reset --hard HEAD
             git clean -fd
             echo "Git-Repository zurückgesetzt"
