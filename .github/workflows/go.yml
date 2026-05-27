@@ -25,6 +25,11 @@ jobs:
   # Job 1: Build, Test und SonarCloud für PRs und main branch
   build-test-analyze:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+      issues: read
+      repository-projects: read
     outputs:
       new-version: ${{ steps.version.outputs.new_tag }}
       changelog: ${{ steps.version.outputs.changelog }}
