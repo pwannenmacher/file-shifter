@@ -98,7 +98,7 @@ func TestParseCLI(t *testing.T) {
 	}
 }
 
-func TestCLIConfig_ApplyToCfg(t *testing.T) {
+func TestCLIConfig_ApplyToCfg(t *testing.T) { // NOSONAR - deckt viele CLI-Kombinationen ab
 	tests := []struct {
 		name     string
 		cli      *CLIConfig
@@ -488,7 +488,7 @@ func TestCLIConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestCLIConfig_ValidateComplexOutputs(t *testing.T) {
+func TestCLIConfig_ValidateComplexOutputs(t *testing.T) { // NOSONAR - absichtlich breite JSON-Validierungsmatrix
 	tests := []struct {
 		name        string
 		outputsJSON string

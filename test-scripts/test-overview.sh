@@ -53,7 +53,7 @@ echo "  4. Aufräumen nach Tests:"
 echo "     ./clean-auto.sh"
 echo ""
 
-if [ "$1" = "--run-all" ]; then
+if [[ "$1" = "--run-all" ]]; then
     echo "🏃 RUNNING ALL TESTS..."
     echo ""
     

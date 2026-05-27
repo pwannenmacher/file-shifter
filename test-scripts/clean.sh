@@ -21,7 +21,7 @@ rm -rf output2 2>/dev/null && echo "Output2-Directory entfernt" || echo "Output2
 
 # Temporäre .env-Dateien entfernen
 echo "Entferne temporäre Konfigurationsdateien..."
-if [ -f .env.backup ]; then
+if [[ -f .env.backup ]]; then
     mv .env.backup .env
     echo "Originale .env wiederhergestellt"
 fi
@@ -46,11 +46,11 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 # Git-Status prüfen (falls es ein Git-Repository ist)
-if [ -d .git ]; then
+if [[ -d .git ]]; then
     echo ""
     echo "=== Git Status ==="
     git status --porcelain
-    if [ -n "$(git status --porcelain)" ]; then
+    if [[ -n "$(git status --porcelain)" ]]; then
         echo "Warnung: Es gibt uncommittete Änderungen im Git-Repository"
         read -p "Git-Repository zurücksetzen? (y/N): " -n 1 -r
         echo
@@ -67,9 +67,9 @@ fi
 echo ""
 echo "=== Cleanup abgeschlossen ==="
 echo "Workspace-Status:"
-echo "- Input-Directory: $([ -d input ] && echo "existiert" || echo "nicht vorhanden")"
-echo "- Output1-Directory: $([ -d output1 ] && echo "existiert" || echo "nicht vorhanden")" 
-echo "- Output2-Directory: $([ -d output2 ] && echo "existiert" || echo "nicht vorhanden")"
+echo "- Input-Directory: $([[ -d input ]] && echo "existiert" || echo "nicht vorhanden")"
+echo "- Output1-Directory: $([[ -d output1 ]] && echo "existiert" || echo "nicht vorhanden")" 
+echo "- Output2-Directory: $([[ -d output2 ]] && echo "existiert" || echo "nicht vorhanden")"
 echo "- Laufende Prozesse: $(pgrep -f file-shifter | wc -l | tr -d ' ')"
 echo "- Docker Container: $(docker ps --filter name=-q | wc -l | tr -d ' ')"
 

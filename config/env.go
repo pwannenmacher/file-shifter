@@ -29,17 +29,11 @@ type EnvConfig struct {
 
 // LoadFromEnvironment loads the configuration from environment variables
 func (c *EnvConfig) LoadFromEnvironment() error {
-	// Log Level - support different formats
-	if logLevel := os.Getenv("LOG_LEVEL"); logLevel != "" {
-		c.Log.Level = logLevel
-	} else if logLevel := os.Getenv("log.level"); logLevel != "" {
+	if logLevel := firstNonEmptyEnv("LOG_LEVEL", "log.level"); logLevel != "" {
 		c.Log.Level = logLevel
 	}
 
-	// Input Directory - support different formats
-	if inputDir := os.Getenv("INPUT"); inputDir != "" {
-		c.Input = inputDir
-	} else if inputDir := os.Getenv("input"); inputDir != "" {
+	if inputDir := firstNonEmptyEnv("INPUT", "input"); inputDir != "" {
 		c.Input = inputDir
 	}
 
@@ -59,17 +53,8 @@ func (c *EnvConfig) LoadFromEnvironment() error {
 
 	// Output Targets - JSON/YAML structure as fallback
 	if len(c.Output) == 0 {
-		if outputTargetsStr := os.Getenv("OUTPUTS"); outputTargetsStr != "" {
-			// 1. JSON
-			var targets []OutputTarget
-			if err := json.Unmarshal([]byte(outputTargetsStr), &targets); err == nil {
-				c.Output = targets
-			} else {
-				// If JSON fails, try as YAML
-				if err := yaml.Unmarshal([]byte(outputTargetsStr), &targets); err == nil {
-					c.Output = targets
-				}
-			}
+		if targets := parseOutputTargetsEnv("OUTPUTS"); len(targets) > 0 {
+			c.Output = targets
 		}
 	}
 
@@ -80,30 +65,19 @@ func (c *EnvConfig) LoadFromEnvironment() error {
 func (c *EnvConfig) loadOutputTargetsFromEnv() {
 	targetMap := make(map[string]*OutputTarget)
 
-	// Iterate through all environment variables and search for OUTPUT_X_* patterns
 	for _, env := range os.Environ() {
-		if strings.HasPrefix(env, "OUTPUT_") {
-			parts := strings.SplitN(env, "=", 2)
-			if len(parts) != 2 {
-				continue
-			}
-
-			key := parts[0]
-			value := parts[1]
-
-			// Parse OUTPUT_X_PATH Pattern
-			if strings.HasSuffix(key, "_PATH") {
-				// Extract index (e.g. ‘1’ from ‘OUTPUT_1_PATH’)
-				indexStr := strings.TrimPrefix(key, "OUTPUT_")
-				indexStr = strings.TrimSuffix(indexStr, "_PATH")
-
-				// Create or find the appropriate target
-				if targetMap[indexStr] == nil {
-					targetMap[indexStr] = &OutputTarget{}
-				}
-				targetMap[indexStr].Path = value
-			}
+		key, value, ok := splitEnvVar(env)
+		if !ok {
+			continue
 		}
+		indexStr, ok := outputPathIndex(key)
+		if !ok {
+			continue
+		}
+		if targetMap[indexStr] == nil {
+			targetMap[indexStr] = &OutputTarget{}
+		}
+		targetMap[indexStr].Path = value
 	}
 
 	// Load additional properties for each target
@@ -111,15 +85,7 @@ func (c *EnvConfig) loadOutputTargetsFromEnv() {
 		c.loadTargetProperties(target, index)
 	}
 
-	// Convert Map to Slice
-	var targets []OutputTarget
-	for _, target := range targetMap {
-		if target.Path != "" { // Add only targets with a set path
-			targets = append(targets, *target)
-		}
-	}
-
-	if len(targets) > 0 {
+	if targets := outputTargetsFromMap(targetMap); len(targets) > 0 {
 		c.Output = targets
 	}
 }
@@ -144,7 +110,7 @@ func (c *EnvConfig) loadTargetProperties(target *OutputTarget, index string) {
 		target.SecretKey = value
 	}
 	if value := os.Getenv(prefix + "SSL"); value != "" {
-		target.SSL = new(strings.ToLower(value) == "true")
+		target.SSL = toBoolPtr(strings.ToLower(value) == "true")
 	}
 	if value := os.Getenv(prefix + "REGION"); value != "" {
 		target.Region = value
@@ -164,136 +130,133 @@ func (c *EnvConfig) loadTargetProperties(target *OutputTarget, index string) {
 
 // loadFileStabilityFromEnv lädt File-Stability Konfiguration aus Umgebungsvariablen
 func (c *EnvConfig) loadFileStabilityFromEnv() {
-	// Alte Struktur (FILE_STABILITY_*)
-	if maxRetries := os.Getenv("FILE_STABILITY_MAX_RETRIES"); maxRetries != "" {
-		if val, err := strconv.Atoi(maxRetries); err == nil && val > 0 {
-			c.FileStability.MaxRetries = val
-		}
-	}
-
-	if checkInterval := os.Getenv("FILE_STABILITY_CHECK_INTERVAL"); checkInterval != "" {
-		if val, err := strconv.Atoi(checkInterval); err == nil && val > 0 {
-			c.FileStability.CheckInterval = val
-		}
-	}
-
-	if stabilityPeriod := os.Getenv("FILE_STABILITY_PERIOD"); stabilityPeriod != "" {
-		if val, err := strconv.Atoi(stabilityPeriod); err == nil && val > 0 {
-			c.FileStability.StabilityPeriod = val
-		}
-	}
-
-	// Neue Struktur (file_stability.*)
-	if maxRetries := os.Getenv("file_stability.max_retries"); maxRetries != "" {
-		if val, err := strconv.Atoi(maxRetries); err == nil && val > 0 {
-			c.FileStability.MaxRetries = val
-		}
-	}
-
-	if checkInterval := os.Getenv("file_stability.check_interval"); checkInterval != "" {
-		if val, err := strconv.Atoi(checkInterval); err == nil && val > 0 {
-			c.FileStability.CheckInterval = val
-		}
-	}
-
-	if period := os.Getenv("file_stability.period"); period != "" {
-		if val, err := strconv.Atoi(period); err == nil && val > 0 {
-			c.FileStability.StabilityPeriod = val
-		}
-	}
+	c.FileStability.MaxRetries = readPositiveIntEnv(c.FileStability.MaxRetries, "FILE_STABILITY_MAX_RETRIES", "file_stability.max_retries")
+	c.FileStability.CheckInterval = readPositiveIntEnv(c.FileStability.CheckInterval, "FILE_STABILITY_CHECK_INTERVAL", "file_stability.check_interval")
+	c.FileStability.StabilityPeriod = readPositiveIntEnv(c.FileStability.StabilityPeriod, "FILE_STABILITY_PERIOD", "file_stability.period")
 }
 
 // loadWorkerPoolFromEnv lädt die Worker-Pool-Konfiguration aus Umgebungsvariablen
 func (c *EnvConfig) loadWorkerPoolFromEnv() {
-	// Alte Struktur (WORKER_POOL_*)
-	if workers := os.Getenv("WORKER_POOL_WORKERS"); workers != "" {
-		if val, err := strconv.Atoi(workers); err == nil && val > 0 {
-			c.WorkerPool.Workers = val
-		}
-	}
-
-	if queueSize := os.Getenv("WORKER_POOL_QUEUE_SIZE"); queueSize != "" {
-		if val, err := strconv.Atoi(queueSize); err == nil && val > 0 {
-			c.WorkerPool.QueueSize = val
-		}
-	}
-
-	// Neue Struktur (worker_pool.*)
-	if workers := os.Getenv("worker_pool.workers"); workers != "" {
-		if val, err := strconv.Atoi(workers); err == nil && val > 0 {
-			c.WorkerPool.Workers = val
-		}
-	}
-
-	if queueSize := os.Getenv("worker_pool.queue_size"); queueSize != "" {
-		if val, err := strconv.Atoi(queueSize); err == nil && val > 0 {
-			c.WorkerPool.QueueSize = val
-		}
-	}
+	c.WorkerPool.Workers = readPositiveIntEnv(c.WorkerPool.Workers, "WORKER_POOL_WORKERS", "worker_pool.workers")
+	c.WorkerPool.QueueSize = readPositiveIntEnv(c.WorkerPool.QueueSize, "WORKER_POOL_QUEUE_SIZE", "worker_pool.queue_size")
 }
 
 // loadOutputFromYAMLEnv lädt Output-Targets aus YAML-strukturierten Umgebungsvariablen
 func (c *EnvConfig) loadOutputFromYAMLEnv() {
 	var targets []OutputTarget
-	targetIndex := 0
-
-	// Suche nach output.N.* Mustern
-	for {
-		pathKey := fmt.Sprintf("output.%d.path", targetIndex)
-		typeKey := fmt.Sprintf("output.%d.type", targetIndex)
-
-		path := os.Getenv(pathKey)
-		targetType := os.Getenv(typeKey)
-
-		if path == "" || targetType == "" {
-			break // Keine weiteren Targets
+	for targetIndex := 0; ; targetIndex++ {
+		target, ok := readYAMLOutputTarget(targetIndex)
+		if !ok {
+			break
 		}
-
-		target := OutputTarget{
-			Path: path,
-			Type: targetType,
-		}
-
-		// S3-spezifische Properties
-		if endpoint := os.Getenv(fmt.Sprintf("output.%d.endpoint", targetIndex)); endpoint != "" {
-			target.Endpoint = endpoint
-		}
-		if accessKey := os.Getenv(fmt.Sprintf("output.%d.access_key", targetIndex)); accessKey != "" {
-			target.AccessKey = accessKey
-		}
-		if secretKey := os.Getenv(fmt.Sprintf("output.%d.secret_key", targetIndex)); secretKey != "" {
-			target.SecretKey = secretKey
-		}
-		if sslStr := os.Getenv(fmt.Sprintf("output.%d.ssl", targetIndex)); sslStr != "" {
-			target.SSL = new(strings.ToLower(sslStr) == "true")
-		}
-		if region := os.Getenv(fmt.Sprintf("output.%d.region", targetIndex)); region != "" {
-			target.Region = region
-		}
-
-		// FTP/SFTP-spezifische Properties
-		if host := os.Getenv(fmt.Sprintf("output.%d.host", targetIndex)); host != "" {
-			target.Host = host
-		}
-		if username := os.Getenv(fmt.Sprintf("output.%d.username", targetIndex)); username != "" {
-			target.Username = username
-		}
-		if password := os.Getenv(fmt.Sprintf("output.%d.password", targetIndex)); password != "" {
-			target.Password = password
-		}
-		if portStr := os.Getenv(fmt.Sprintf("output.%d.port", targetIndex)); portStr != "" {
-			if port, err := strconv.Atoi(portStr); err == nil {
-				target.Port = port
-			}
-		}
-
 		targets = append(targets, target)
-		targetIndex++
 	}
 
 	if len(targets) > 0 {
 		c.Output = targets
 	}
+}
+
+func splitEnvVar(env string) (string, string, bool) {
+	parts := strings.SplitN(env, "=", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
+}
+
+func outputPathIndex(key string) (string, bool) {
+	if !strings.HasPrefix(key, "OUTPUT_") || !strings.HasSuffix(key, "_PATH") {
+		return "", false
+	}
+	indexStr := strings.TrimPrefix(key, "OUTPUT_")
+	indexStr = strings.TrimSuffix(indexStr, "_PATH")
+	if indexStr == "" {
+		return "", false
+	}
+	return indexStr, true
+}
+
+func outputTargetsFromMap(targetMap map[string]*OutputTarget) []OutputTarget {
+	var targets []OutputTarget
+	for _, target := range targetMap {
+		if target.Path != "" {
+			targets = append(targets, *target)
+		}
+	}
+	return targets
+}
+
+func firstNonEmptyEnv(keys ...string) string {
+	for _, key := range keys {
+		if value := os.Getenv(key); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func parseOutputTargetsEnv(key string) []OutputTarget {
+	outputTargetsStr := os.Getenv(key)
+	if outputTargetsStr == "" {
+		return nil
+	}
+
+	var targets []OutputTarget
+	if err := json.Unmarshal([]byte(outputTargetsStr), &targets); err == nil {
+		return targets
+	}
+	if err := yaml.Unmarshal([]byte(outputTargetsStr), &targets); err == nil {
+		return targets
+	}
+	return nil
+}
+
+func readPositiveIntEnv(defaultValue int, keys ...string) int {
+	for _, key := range keys {
+		if value := os.Getenv(key); value != "" {
+			if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
+				defaultValue = parsed
+			}
+		}
+	}
+	return defaultValue
+}
+
+func readYAMLOutputTarget(index int) (OutputTarget, bool) {
+	path := os.Getenv(fmt.Sprintf("output.%d.path", index))
+	targetType := os.Getenv(fmt.Sprintf("output.%d.type", index))
+	if path == "" || targetType == "" {
+		return OutputTarget{}, false
+	}
+
+	target := OutputTarget{
+		Path: path,
+		Type: targetType,
+	}
+
+	target.Endpoint = os.Getenv(fmt.Sprintf("output.%d.endpoint", index))
+	target.AccessKey = os.Getenv(fmt.Sprintf("output.%d.access_key", index))
+	target.SecretKey = os.Getenv(fmt.Sprintf("output.%d.secret_key", index))
+	target.Region = os.Getenv(fmt.Sprintf("output.%d.region", index))
+	target.Host = os.Getenv(fmt.Sprintf("output.%d.host", index))
+	target.Username = os.Getenv(fmt.Sprintf("output.%d.username", index))
+	target.Password = os.Getenv(fmt.Sprintf("output.%d.password", index))
+
+	if sslStr := os.Getenv(fmt.Sprintf("output.%d.ssl", index)); sslStr != "" {
+		target.SSL = toBoolPtr(strings.ToLower(sslStr) == "true")
+	}
+	if portStr := os.Getenv(fmt.Sprintf("output.%d.port", index)); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			target.Port = port
+		}
+	}
+
+	return target, true
+}
+
+func toBoolPtr(value bool) *bool {
+	return &value
 }
 
 // SetDefaults setzt Standard-Werte für die Konfiguration

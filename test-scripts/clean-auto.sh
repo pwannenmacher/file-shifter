@@ -16,7 +16,7 @@ rm -rf input output output1 output2 yaml-input yaml-output 2>/dev/null
 
 # Temporäre Konfigurationsdateien aufräumen
 # Backup der Original-env.yaml falls vorhanden
-if [ -f env.yaml ] && [ ! -f env.yaml.backup ]; then
+if [[ -f env.yaml ]] && [[ ! -f env.yaml.backup ]]; then
     cp env.yaml env.yaml.backup 2>/dev/null
 fi
 
@@ -33,7 +33,7 @@ rm -f .env.backup.test env.yaml.backup.test 2>/dev/null
 rm -f .env.test .env.s3test 2>/dev/null
 
 # Original-Konfiguration wiederherstellen falls vorhanden
-if [ -f env.yaml.backup ]; then
+if [[ -f env.yaml.backup ]]; then
     cp env.yaml.backup env.yaml
     echo "Original env.yaml wiederhergestellt"
 fi

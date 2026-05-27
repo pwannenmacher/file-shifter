@@ -2,6 +2,7 @@ package services
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -134,101 +135,127 @@ func (fh *FileHandler) ProcessFile(filePath, inputDir string) error {
 	const maxChecksumRetries = 5
 
 	for attempt := 1; attempt <= maxChecksumRetries; attempt++ {
-		slog.Info("Process file", "file", filePath, "attempt", attempt, "max_attempts", maxChecksumRetries)
-
-		// Calculate first checksum (immediately after finding the file)
-		initialChecksum, err := fh.calculateFileChecksum(filePath)
+		retry, err := fh.processFileAttempt(filePath, inputDir, attempt, maxChecksumRetries)
 		if err != nil {
-			return fmt.Errorf("error calculating initial checksum: %w", err)
+			return err
 		}
-		slog.Debug("Initial checksum calculated", "file", filePath, "checksum", initialChecksum)
-
-		// Determine relative path
-		relPath, err := filepath.Rel(inputDir, filePath)
-		if err != nil {
-			return fmt.Errorf("error determining relative path: %w", err)
-		}
-
-		// File info for attribute preservation
-		fileInfo, err := os.Stat(filePath)
-		if err != nil {
-			return fmt.Errorf("error reading file information: %w", err)
-		}
-
-		var transferErrors []error
-
-		// Copy to all configured destinations
-		for _, target := range fh.OutputTargets {
-			switch target.Type {
-			case "filesystem":
-				if err := fh.copyToFilesystem(filePath, relPath, target.Path, fileInfo); err != nil {
-					transferErrors = append(transferErrors, fmt.Errorf("file system transfer failed: %w", err))
-					slog.Error("Filesystem-Transfer failed", "target", target.Path, "error", err)
-				}
-			case "s3":
-				if err := fh.copyToS3(filePath, relPath, target); err != nil {
-					transferErrors = append(transferErrors, fmt.Errorf("s3 transfer failed: %w", err))
-					slog.Error("S3-Transfer failed", "target", target.Path, "error", err)
-				}
-			case "ftp":
-				if err := fh.copyToFTP(filePath, relPath, target); err != nil {
-					transferErrors = append(transferErrors, fmt.Errorf("FTP transfer failed: %w", err))
-					slog.Error("FTP-Transfer failed", "target", target.Path, "error", err)
-				}
-			case "sftp":
-				if err := fh.copyToSFTP(filePath, relPath, target); err != nil {
-					transferErrors = append(transferErrors, fmt.Errorf("SFTP transfer failed: %w", err))
-					slog.Error("SFTP-Transfer failed", "target", target.Path, "error", err)
-				}
-			default:
-				transferErrors = append(transferErrors, fmt.Errorf("unknown target type: %s", target.Type))
-			}
-		}
-
-		if len(transferErrors) > 0 {
-			slog.Error("Not all transfers successful - original file retained", "file", relPath, "error", len(transferErrors))
-			return fmt.Errorf("transfers failed: %v", transferErrors)
-		}
-
-		// Calculate final checksum (immediately before deletion)
-		finalChecksum, checksumErr := fh.calculateFileChecksum(filePath)
-		if checksumErr != nil {
-			slog.Error("Error calculating final checksum", "file", filePath, "error", checksumErr)
-			if cleanupErr := fh.cleanupTargetFiles(relPath); cleanupErr != nil {
-				return fmt.Errorf("error cleaning target files: %w", cleanupErr)
-			}
-			return fmt.Errorf("error calculating the final checksum: %w", checksumErr)
-		}
-
-		if initialChecksum != finalChecksum {
-			slog.Warn("Prüfsummen stimmen nicht überein - Datei wurde während der Verarbeitung verändert",
-				"file", filePath,
-				"initial_checksum", initialChecksum,
-				"final_checksum", finalChecksum,
-				"attempt", attempt,
-				"max_attempts", maxChecksumRetries)
-
-			if err := fh.cleanupTargetFiles(relPath); err != nil {
-				slog.Error("Error deleting target files", "file", relPath, "error", err)
-			}
-
-			if attempt == maxChecksumRetries {
-				return fmt.Errorf("checksum mismatch persists after %d attempts: %s", maxChecksumRetries, relPath)
-			}
-
+		if retry {
 			continue
 		}
-
-		// Checksums are identical - original file can be removed.
-		if err := os.Remove(filePath); err != nil {
-			slog.Error("Error deleting the original file", "file", filePath, "error", err)
-			return fmt.Errorf("error deleting the original file: %w", err)
-		}
-		slog.Info("File successfully processed and removed", "file", relPath)
 		return nil
 	}
 
 	return fmt.Errorf("processing aborted after retries: %s", filePath)
+}
+
+func (fh *FileHandler) processFileAttempt(filePath, inputDir string, attempt, maxChecksumRetries int) (bool, error) {
+	slog.Info("Process file", "file", filePath, "attempt", attempt, "max_attempts", maxChecksumRetries)
+
+	initialChecksum, err := fh.calculateFileChecksum(filePath)
+	if err != nil {
+		return false, fmt.Errorf("error calculating initial checksum: %w", err)
+	}
+	slog.Debug("Initial checksum calculated", "file", filePath, "checksum", initialChecksum)
+
+	relPath, err := filepath.Rel(inputDir, filePath)
+	if err != nil {
+		return false, fmt.Errorf("error determining relative path: %w", err)
+	}
+
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return false, fmt.Errorf("error reading file information: %w", err)
+	}
+
+	if err := fh.copyToAllTargets(filePath, relPath, fileInfo); err != nil {
+		return false, err
+	}
+
+	return fh.finalizeProcessedFile(filePath, relPath, initialChecksum, attempt, maxChecksumRetries)
+}
+
+func (fh *FileHandler) copyToAllTargets(filePath, relPath string, fileInfo os.FileInfo) error {
+	var transferErrors []error
+
+	for _, target := range fh.OutputTargets {
+		if err := fh.copyToTarget(filePath, relPath, target, fileInfo); err != nil {
+			transferErrors = append(transferErrors, err)
+		}
+	}
+
+	if len(transferErrors) > 0 {
+		slog.Error("Not all transfers successful - original file retained", "file", relPath, "error", len(transferErrors))
+		return fmt.Errorf("transfers failed: %w", errors.Join(transferErrors...))
+	}
+
+	return nil
+}
+
+func (fh *FileHandler) copyToTarget(filePath, relPath string, target config.OutputTarget, fileInfo os.FileInfo) error {
+	switch target.Type {
+	case "filesystem":
+		if err := fh.copyToFilesystem(filePath, relPath, target.Path, fileInfo); err != nil {
+			slog.Error("Filesystem-Transfer failed", "target", target.Path, "error", err)
+			return fmt.Errorf("file system transfer failed: %w", err)
+		}
+	case "s3":
+		if err := fh.copyToS3(filePath, relPath, target); err != nil {
+			slog.Error("S3-Transfer failed", "target", target.Path, "error", err)
+			return fmt.Errorf("s3 transfer failed: %w", err)
+		}
+	case "ftp":
+		if err := fh.copyToFTP(filePath, relPath, target); err != nil {
+			slog.Error("FTP-Transfer failed", "target", target.Path, "error", err)
+			return fmt.Errorf("FTP transfer failed: %w", err)
+		}
+	case "sftp":
+		if err := fh.copyToSFTP(filePath, relPath, target); err != nil {
+			slog.Error("SFTP-Transfer failed", "target", target.Path, "error", err)
+			return fmt.Errorf("SFTP transfer failed: %w", err)
+		}
+	default:
+		return fmt.Errorf("unknown target type: %s", target.Type)
+	}
+
+	return nil
+}
+
+func (fh *FileHandler) finalizeProcessedFile(filePath, relPath, initialChecksum string, attempt, maxChecksumRetries int) (bool, error) {
+	finalChecksum, checksumErr := fh.calculateFileChecksum(filePath)
+	if checksumErr != nil {
+		slog.Error("Error calculating final checksum", "file", filePath, "error", checksumErr)
+		if cleanupErr := fh.cleanupTargetFiles(relPath); cleanupErr != nil {
+			return false, fmt.Errorf("error cleaning target files: %w", cleanupErr)
+		}
+		return false, fmt.Errorf("error calculating the final checksum: %w", checksumErr)
+	}
+
+	if initialChecksum != finalChecksum {
+		slog.Warn("Prüfsummen stimmen nicht überein - Datei wurde während der Verarbeitung verändert",
+			"file", filePath,
+			"initial_checksum", initialChecksum,
+			"final_checksum", finalChecksum,
+			"attempt", attempt,
+			"max_attempts", maxChecksumRetries)
+
+		if err := fh.cleanupTargetFiles(relPath); err != nil {
+			slog.Error("Error deleting target files", "file", relPath, "error", err)
+		}
+
+		if attempt == maxChecksumRetries {
+			return false, fmt.Errorf("checksum mismatch persists after %d attempts: %s", maxChecksumRetries, relPath)
+		}
+
+		return true, nil
+	}
+
+	if err := os.Remove(filePath); err != nil {
+		slog.Error("Error deleting the original file", "file", filePath, "error", err)
+		return false, fmt.Errorf("error deleting the original file: %w", err)
+	}
+
+	slog.Info("File successfully processed and removed", "file", relPath)
+	return false, nil
 }
 
 func (fh *FileHandler) copyToFilesystem(srcPath, relPath, targetBasePath string, fileInfo os.FileInfo) error {

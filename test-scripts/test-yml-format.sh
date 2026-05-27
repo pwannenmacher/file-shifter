@@ -15,9 +15,9 @@ echo "Baue file-shifter..."
 echo "✅ Build erfolgreich"
 
 # Backup vorhandener Konfigurationsdateien
-[ -f .env ] && cp .env .env.backup.test
-[ -f env.yaml ] && cp env.yaml env.yaml.backup.test
-[ -f env.yml ] && cp env.yml env.yml.backup.test
+[[ -f .env ]] && cp .env .env.backup.test
+[[ -f env.yaml ]] && cp env.yaml env.yaml.backup.test
+[[ -f env.yml ]] && cp env.yml env.yml.backup.test
 rm -f .env env.yaml env.yml 2>/dev/null
 
 echo "Erstelle Test-Umgebung..."
@@ -48,7 +48,7 @@ wait $APP_PID 2>/dev/null || true
 
 echo ""
 echo "=== Ergebnisse Test 1 ==="
-if [ -d "output-yml" ] && [ -n "$(ls output-yml 2>/dev/null)" ]; then
+if [[ -d "output-yml" ]] && [[ -n "$(ls output-yml 2>/dev/null)" ]]; then
     echo "✅ env.yml funktioniert - Dateien kopiert:"
     find output-yml -type f | sort
 else
@@ -85,7 +85,7 @@ wait $APP_PID 2>/dev/null || true
 
 echo ""
 echo "=== Ergebnisse Test 2 ==="
-if [ -d "output-yaml" ] && [ -n "$(ls output-yaml 2>/dev/null)" ]; then
+if [[ -d "output-yaml" ]] && [[ -n "$(ls output-yaml 2>/dev/null)" ]]; then
     echo "✅ env.yaml funktioniert - Dateien kopiert:"
     find output-yaml -type f | sort
 else
@@ -147,9 +147,9 @@ rm -rf input output-yml output-yaml
 rm -f env.yml env.yaml output.log
 
 # Restore backups
-[ -f .env.backup.test ] && mv .env.backup.test .env
-[ -f env.yaml.backup.test ] && mv env.yaml.backup.test env.yaml
-[ -f env.yml.backup.test ] && mv env.yml.backup.test env.yml
+[[ -f .env.backup.test ]] && mv .env.backup.test .env
+[[ -f env.yaml.backup.test ]] && mv env.yaml.backup.test env.yaml
+[[ -f env.yml.backup.test ]] && mv env.yml.backup.test env.yml
 
 rm -f file-shifter
 

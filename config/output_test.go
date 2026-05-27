@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestOutputTarget_GetS3Config(t *testing.T) {
+func TestOutputTarget_GetS3Config(t *testing.T) { // NOSONAR - umfangreiche S3-Konfigurationsmatrix
 	tests := []struct {
 		name     string
 		target   OutputTarget

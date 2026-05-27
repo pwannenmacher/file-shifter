@@ -2,6 +2,7 @@ package config
 
 import (
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -43,35 +44,45 @@ func (ot *OutputTarget) GetFTPConfig() FTPConfig {
 	host := ot.Host
 	port := ot.Port
 
-	// Falls kein Host explizit gesetzt ist, versuche ihn aus der URL zu extrahieren
-	if host == "" && (ot.Type == "ftp" || ot.Type == "sftp") {
-		if u, err := url.Parse(ot.Path); err == nil && u.Host != "" {
-			host = u.Host
-			// Falls kein Port in der URL angegeben ist, Standard-Port setzen
-			if !strings.Contains(host, ":") {
-				if ot.Type == "sftp" {
-					host += ":22"
-				} else {
-					host += ":21"
-				}
-			}
-		}
+	if host == "" && isFTPType(ot.Type) {
+		host = hostFromTargetPath(ot.Path, ot.Type)
 	}
 
 	if port == 0 {
-		// Standard-Port basierend auf Typ setzen
-		if ot.Type == "sftp" {
-			port = 22
-		} else {
-			port = 21
-		}
+		port = defaultPortForType(ot.Type)
 	}
+
 	return FTPConfig{
 		Host:     host,
 		Username: ot.Username,
 		Password: ot.Password,
 		Port:     port,
 	}
+}
+
+func isFTPType(targetType string) bool {
+	return targetType == "ftp" || targetType == "sftp"
+}
+
+func defaultPortForType(targetType string) int {
+	if targetType == "sftp" {
+		return 22
+	}
+	return 21
+}
+
+func hostFromTargetPath(targetPath, targetType string) string {
+	u, err := url.Parse(targetPath)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+
+	host := u.Host
+	if strings.Contains(host, ":") {
+		return host
+	}
+
+	return host + ":" + strconv.Itoa(defaultPortForType(targetType))
 }
 
 type OutputConfig []OutputTarget

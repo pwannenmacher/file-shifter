@@ -145,33 +145,58 @@ func (cli *CLIConfig) HasOutputsConfigured() bool {
 
 // Validate validates CLI configuration
 func (cli *CLIConfig) Validate() error {
-	// Validate log level if provided
-	if cli.LogLevel != "" {
-		level := strings.ToUpper(cli.LogLevel)
-		if level != "DEBUG" && level != "INFO" && level != "WARN" && level != "ERROR" {
-			return fmt.Errorf("invalid log level: %s (allowed: DEBUG, INFO, WARN, ERROR)", cli.LogLevel)
+	if err := validateLogLevel(cli.LogLevel); err != nil {
+		return err
+	}
+
+	if err := validateOutputsJSON(cli.OutputsJSON); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateLogLevel(level string) error {
+	if level == "" {
+		return nil
+	}
+
+	normalized := strings.ToUpper(level)
+	if normalized != "DEBUG" && normalized != "INFO" && normalized != "WARN" && normalized != "ERROR" {
+		return fmt.Errorf("invalid log level: %s (allowed: DEBUG, INFO, WARN, ERROR)", level)
+	}
+
+	return nil
+}
+
+func validateOutputsJSON(outputsJSON string) error {
+	if outputsJSON == "" {
+		return nil
+	}
+
+	var targets []OutputTarget
+	if err := json.Unmarshal([]byte(outputsJSON), &targets); err != nil {
+		return fmt.Errorf("invalid --outputs JSON format: %w", err)
+	}
+
+	for i, target := range targets {
+		if err := validateOutputTarget(target, i); err != nil {
+			return err
 		}
 	}
 
-	// Validate outputs JSON if provided
-	if cli.OutputsJSON != "" {
-		var targets []OutputTarget
-		if err := json.Unmarshal([]byte(cli.OutputsJSON), &targets); err != nil {
-			return fmt.Errorf("invalid --outputs JSON format: %w", err)
-		}
+	return nil
+}
 
-		// Basic validation of targets
-		for i, target := range targets {
-			if target.Path == "" {
-				return fmt.Errorf("output target %d: 'path' is required", i+1)
-			}
-			if target.Type == "" {
-				return fmt.Errorf("output target %d: 'type' is required", i+1)
-			}
-			if target.Type != "filesystem" && target.Type != "s3" && target.Type != "sftp" && target.Type != "ftp" {
-				return fmt.Errorf("output target %d: invalid type '%s' (allowed: filesystem, s3, sftp, ftp)", i+1, target.Type)
-			}
-		}
+func validateOutputTarget(target OutputTarget, index int) error {
+	if target.Path == "" {
+		return fmt.Errorf("output target %d: 'path' is required", index+1)
+	}
+	if target.Type == "" {
+		return fmt.Errorf("output target %d: 'type' is required", index+1)
+	}
+	if target.Type != "filesystem" && target.Type != "s3" && target.Type != "sftp" && target.Type != "ftp" {
+		return fmt.Errorf("output target %d: invalid type '%s' (allowed: filesystem, s3, sftp, ftp)", index+1, target.Type)
 	}
 
 	return nil
