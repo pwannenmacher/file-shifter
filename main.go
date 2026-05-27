@@ -13,6 +13,40 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type workerService interface {
+	Start()
+	Stop()
+}
+
+type healthService interface {
+	Start()
+	Stop()
+}
+
+type realWorkerService struct {
+	worker *services.Worker
+}
+
+func (w *realWorkerService) Start() {
+	w.worker.Start()
+}
+
+func (w *realWorkerService) Stop() {
+	w.worker.Stop()
+}
+
+func newRealWorkerService(inputDir string, outputTargets []config.OutputTarget, cfg *config.EnvConfig) workerService {
+	return &realWorkerService{worker: services.NewWorker(inputDir, outputTargets, cfg)}
+}
+
+func newRealHealthService(worker workerService, port string) healthService {
+	realWorker, ok := worker.(*realWorkerService)
+	if !ok {
+		panic("invalid worker service implementation")
+	}
+	return services.NewHealthMonitor(realWorker.worker, port)
+}
+
 func loadEnvYaml() (*config.EnvConfig, error) {
 	// Check which files are available
 	yamlExists := fileExists("env.yaml")
@@ -71,14 +105,20 @@ func setupLogger(cfg *config.EnvConfig) {
 	slog.SetDefault(logger)
 }
 
-func main() {
-	// 1. Parsing command line arguments
-	cliCfg := config.ParseCLI()
+func runApp(
+	parseCLI func() *config.CLIConfig,
+	loadEnvYamlFunc func() (*config.EnvConfig, error),
+	loadDotEnv func() error,
+	createWorker func(string, []config.OutputTarget, *config.EnvConfig) workerService,
+	createHealthMonitor func(workerService, string) healthService,
+	notifySignals func(chan<- os.Signal, ...os.Signal),
+) int {
+	cliCfg := parseCLI()
 
 	// Validate CLI configuration
 	if err := cliCfg.Validate(); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Fehler in Kommandozeilen-Argumenten: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	// 2. Configuration order:
@@ -87,13 +127,13 @@ func main() {
 	// - Load environment variables
 	// - Apply CLI parameters (overrides everything else)
 
-	cfg, err := loadEnvYaml()
+	cfg, err := loadEnvYamlFunc()
 	if err != nil {
 		fmt.Println("Konfigurationsdatei konnte nicht geladen werden:", err)
 		cfg = &config.EnvConfig{} // leere Konfiguration
 	}
 
-	_ = godotenv.Load()
+	_ = loadDotEnv()
 
 	// Set defaults
 	cfg.SetDefaults()
@@ -108,7 +148,7 @@ func main() {
 	err = cliCfg.ApplyToCfg(cfg)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Error applying CLI parameters: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	// Logger configuration
@@ -135,19 +175,19 @@ func main() {
 	// Validate configuration (after setting the default targets)
 	if err := cfg.Validate(); err != nil {
 		slog.Error("Invalid configuration", "error", err)
-		os.Exit(1)
+		return 1
 	}
 
 	// Initialise and start workers
-	workerService := services.NewWorker(inputDir, outputTargets, cfg)
+	workerService := createWorker(inputDir, outputTargets, cfg)
 
 	// Start Health-Monitor
-	healthMonitor := services.NewHealthMonitor(workerService, "8080")
+	healthMonitor := createHealthMonitor(workerService, "8080")
 	healthMonitor.Start()
 
 	// Graceful Shutdown Handler
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	notifySignals(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		<-sigChan
@@ -158,4 +198,19 @@ func main() {
 
 	// Start worker (blocked until Stop is called)
 	workerService.Start()
+	return 0
+}
+
+func main() {
+	code := runApp(
+		config.ParseCLI,
+		loadEnvYaml,
+		func() error { return godotenv.Load() },
+		newRealWorkerService,
+		newRealHealthService,
+		signal.Notify,
+	)
+	if code != 0 {
+		os.Exit(code)
+	}
 }
