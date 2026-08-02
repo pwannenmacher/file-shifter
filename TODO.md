@@ -6,9 +6,9 @@
   - Add known_hosts based validation and config flags for strict mode.
   - Fail closed by default if host key is unknown.
 
-- [ ] Limit event fan-out to avoid unbounded goroutine growth under fsnotify storms.
+- [x] Limit event fan-out to avoid unbounded goroutine growth under fsnotify storms.
   - Replace per-event goroutine spawning with a bounded event worker pipeline.
-  - Add backpressure and metrics for dropped/throttled events.
+  - Lossless backlog with saturation metrics (warning log, degraded health); no events are dropped.
 
 - [x] Harden health server HTTP timeouts.
   - Set `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, and `IdleTimeout` on `http.Server`.
