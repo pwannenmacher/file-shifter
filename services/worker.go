@@ -83,6 +83,9 @@ func (w *Worker) Stop() {
 	if w.S3ClientManager != nil {
 		w.S3ClientManager.Close()
 	}
+	if w.FileHandler != nil {
+		w.FileHandler.Close()
+	}
 	// close instead of send: does not block if Start() is not (yet) receiving
 	// and is safe when Stop() is called more than once
 	w.stopOnce.Do(func() { close(w.stopChan) })

@@ -7,26 +7,26 @@ import (
 )
 
 type OutputTarget struct {
-	Path string `yaml:"path"`
-	Type string `yaml:"type"`
+	Path string `yaml:"path" json:"path"`
+	Type string `yaml:"type" json:"type"`
 
 	// S3-spezifische Konfiguration
-	Endpoint  string `yaml:"endpoint,omitempty"`
-	AccessKey string `yaml:"access-key,omitempty"`
-	SecretKey string `yaml:"secret-key,omitempty"`
-	SSL       *bool  `yaml:"ssl,omitempty"`
-	Region    string `yaml:"region,omitempty"`
+	Endpoint  string `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
+	AccessKey string `yaml:"access-key,omitempty" json:"access-key,omitempty"`
+	SecretKey string `yaml:"secret-key,omitempty" json:"secret-key,omitempty"`
+	SSL       *bool  `yaml:"ssl,omitempty" json:"ssl,omitempty"`
+	Region    string `yaml:"region,omitempty" json:"region,omitempty"`
 
 	// FTP/SFTP-spezifische Konfiguration
-	Host     string `yaml:"host,omitempty"`
-	Username string `yaml:"username,omitempty"`
-	Password string `yaml:"password,omitempty"`
-	Port     int    `yaml:"port,omitempty"`
-	TLS      bool   `yaml:"tls,omitempty"` // FTP: explizites FTPS (AUTH TLS)
+	Host     string `yaml:"host,omitempty" json:"host,omitempty"`
+	Username string `yaml:"username,omitempty" json:"username,omitempty"`
+	Password string `yaml:"password,omitempty" json:"password,omitempty"`
+	Port     int    `yaml:"port,omitempty" json:"port,omitempty"`
+	TLS      bool   `yaml:"tls,omitempty" json:"tls,omitempty"` // FTP: explizites FTPS (AUTH TLS)
 
 	// SFTP Host-Key-Verifikation
-	KnownHosts                string `yaml:"known-hosts,omitempty"`
-	InsecureSkipHostKeyVerify bool   `yaml:"insecure-skip-host-key-verification,omitempty"`
+	KnownHosts                string `yaml:"known-hosts,omitempty" json:"known-hosts,omitempty"`
+	InsecureSkipHostKeyVerify bool   `yaml:"insecure-skip-host-key-verification,omitempty" json:"insecure-skip-host-key-verification,omitempty"`
 }
 
 // GetS3Config extrahiert die S3-Konfiguration aus dem OutputTarget

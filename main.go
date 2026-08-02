@@ -168,6 +168,11 @@ func runApp(
 	// Logger configuration
 	setupLogger(cfg)
 
+	if cliCfg.HasInlineCredentials() {
+		slog.Warn("Credentials passed via --outputs are visible in the process list (ps)",
+			"recommendation", "prefer environment variables, .env or env.yaml for secrets")
+	}
+
 	// Input Directory
 	inputDir := cfg.Input
 

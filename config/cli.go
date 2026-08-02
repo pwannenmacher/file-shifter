@@ -113,6 +113,11 @@ OPTIONS:
 
     -h, --help           Show this help message
 
+SECURITY:
+    Credentials passed via --outputs are visible to all local users in the
+    process list (ps). Prefer environment variables, a .env file or
+    env.yaml for secrets (access keys, passwords).
+
 EXAMPLES:
     # Basic filesystem backup
     %s --input ./data --outputs '[{"path":"./backup","type":"filesystem"}]'
@@ -152,6 +157,26 @@ For more configuration options, see the README.md or create an env.yaml file.
 // HasOutputsConfigured checks if outputs are configured via CLI
 func (cli *CLIConfig) HasOutputsConfigured() bool {
 	return cli.OutputsJSON != ""
+}
+
+// HasInlineCredentials reports whether the --outputs JSON appears to contain
+// secrets, which are visible in the process list
+func (cli *CLIConfig) HasInlineCredentials() bool {
+	if cli.OutputsJSON == "" {
+		return false
+	}
+
+	var targets []OutputTarget
+	if err := json.Unmarshal([]byte(cli.OutputsJSON), &targets); err != nil {
+		return false
+	}
+
+	for _, target := range targets {
+		if target.SecretKey != "" || target.AccessKey != "" || target.Password != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Validate validates CLI configuration
