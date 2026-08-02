@@ -6,7 +6,7 @@ toolchain go1.26.5
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/jlaffaye/ftp v0.2.1
+	github.com/jlaffaye/ftp v0.2.2
 	github.com/joho/godotenv v1.5.1
 	github.com/minio/minio-go/v7 v7.2.1
 	github.com/pkg/sftp v1.13.11
