@@ -12,3 +12,7 @@
 - [ ] End-to-end test for FTPS (`tls: true` on FTP targets) against a real FTPS server — currently only unit-tested.
 - [ ] Translate remaining German comments/messages in test files (production code is English-only).
 - [ ] Stabilize `TestFileWatcher_DirectoryDeletion` (fixed sleeps make it flaky under load).
+- [ ] Report a missing input directory as unhealthy via the health endpoint (currently the service idles silently
+      after the input directory is deleted).
+- [ ] Recover automatically when the input directory is recreated (re-register the watcher instead of requiring
+      a restart).
