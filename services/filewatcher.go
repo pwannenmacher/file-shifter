@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -689,25 +688,17 @@ func (fw *FileWatcher) safeCloseFile(file *os.File, filePath string) {
 	}
 }
 
-// canOpenExclusively attempts to gain exclusive access to the file via flock
+// canOpenExclusively attempts to gain exclusive access to the file via a
+// non-blocking file lock (flock on Unix, LockFileEx on Windows).
 func (fw *FileWatcher) canOpenExclusively(filePath string) bool {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return false
 	}
 
-	// Attempt a non-blocking exclusive lock
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		fw.safeCloseFile(file, filePath)
-		return false
-	}
-	// Release exclusive lock
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_UN); err != nil {
-		slog.Error("Error unlocking file", "file", filePath, "error", err)
-	}
-
+	locked := tryLockFileExclusively(file)
 	fw.safeCloseFile(file, filePath)
-	return true
+	return locked
 }
 
 // isFileOpenByOtherProcess uses lsof to check whether the file is open by other processes
