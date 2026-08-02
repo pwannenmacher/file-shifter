@@ -25,6 +25,13 @@ type EnvConfig struct {
 		Workers   int `yaml:"workers"`    // Number of parallel workers
 		QueueSize int `yaml:"queue-size"` // Size of the file queue
 	} `yaml:"worker-pool"`
+	Health struct {
+		Port int `yaml:"port"` // Port for the health check HTTP server
+	} `yaml:"health"`
+	S3 struct {
+		OperationTimeout int `yaml:"operation-timeout"` // Timeout in seconds for S3 metadata operations (bucket checks, stats, deletes)
+		UploadTimeout    int `yaml:"upload-timeout"`    // Timeout in seconds for S3 uploads
+	} `yaml:"s3"`
 }
 
 // LoadFromEnvironment loads the configuration from environment variables
@@ -42,6 +49,13 @@ func (c *EnvConfig) LoadFromEnvironment() error {
 
 	// Worker Pool Configuration - support different formats
 	c.loadWorkerPoolFromEnv()
+
+	// Health server configuration
+	c.Health.Port = readPositiveIntEnv(c.Health.Port, "HEALTH_PORT", "health.port")
+
+	// S3 timeout configuration
+	c.S3.OperationTimeout = readPositiveIntEnv(c.S3.OperationTimeout, "S3_OPERATION_TIMEOUT", "s3.operation_timeout")
+	c.S3.UploadTimeout = readPositiveIntEnv(c.S3.UploadTimeout, "S3_UPLOAD_TIMEOUT", "s3.upload_timeout")
 
 	// Output Targets - flat structure
 	c.loadOutputTargetsFromEnv()
@@ -94,12 +108,12 @@ func (c *EnvConfig) loadOutputTargetsFromEnv() {
 func (c *EnvConfig) loadTargetProperties(target *OutputTarget, index string) {
 	prefix := "OUTPUT_" + index + "_"
 
-	// Grundlegende Eigenschaften
+	// Basic properties
 	if value := os.Getenv(prefix + "TYPE"); value != "" {
 		target.Type = value
 	}
 
-	// S3-spezifische Eigenschaften
+	// S3-specific properties
 	if value := os.Getenv(prefix + "ENDPOINT"); value != "" {
 		target.Endpoint = value
 	}
@@ -116,7 +130,7 @@ func (c *EnvConfig) loadTargetProperties(target *OutputTarget, index string) {
 		target.Region = value
 	}
 
-	// FTP/SFTP-spezifische Eigenschaften
+	// FTP/SFTP-specific properties
 	if value := os.Getenv(prefix + "HOST"); value != "" {
 		target.Host = value
 	}
@@ -126,22 +140,31 @@ func (c *EnvConfig) loadTargetProperties(target *OutputTarget, index string) {
 	if value := os.Getenv(prefix + "PASSWORD"); value != "" {
 		target.Password = value
 	}
+	if value := os.Getenv(prefix + "TLS"); value != "" {
+		target.TLS = strings.ToLower(value) == "true"
+	}
+	if value := os.Getenv(prefix + "KNOWN_HOSTS"); value != "" {
+		target.KnownHosts = value
+	}
+	if value := os.Getenv(prefix + "INSECURE_SKIP_HOST_KEY_VERIFICATION"); value != "" {
+		target.InsecureSkipHostKeyVerify = strings.ToLower(value) == "true"
+	}
 }
 
-// loadFileStabilityFromEnv lädt File-Stability Konfiguration aus Umgebungsvariablen
+// loadFileStabilityFromEnv loads the file stability configuration from environment variables
 func (c *EnvConfig) loadFileStabilityFromEnv() {
 	c.FileStability.MaxRetries = readPositiveIntEnv(c.FileStability.MaxRetries, "FILE_STABILITY_MAX_RETRIES", "file_stability.max_retries")
 	c.FileStability.CheckInterval = readPositiveIntEnv(c.FileStability.CheckInterval, "FILE_STABILITY_CHECK_INTERVAL", "file_stability.check_interval")
 	c.FileStability.StabilityPeriod = readPositiveIntEnv(c.FileStability.StabilityPeriod, "FILE_STABILITY_PERIOD", "file_stability.period")
 }
 
-// loadWorkerPoolFromEnv lädt die Worker-Pool-Konfiguration aus Umgebungsvariablen
+// loadWorkerPoolFromEnv loads the worker pool configuration from environment variables
 func (c *EnvConfig) loadWorkerPoolFromEnv() {
 	c.WorkerPool.Workers = readPositiveIntEnv(c.WorkerPool.Workers, "WORKER_POOL_WORKERS", "worker_pool.workers")
 	c.WorkerPool.QueueSize = readPositiveIntEnv(c.WorkerPool.QueueSize, "WORKER_POOL_QUEUE_SIZE", "worker_pool.queue_size")
 }
 
-// loadOutputFromYAMLEnv lädt Output-Targets aus YAML-strukturierten Umgebungsvariablen
+// loadOutputFromYAMLEnv loads output targets from YAML-structured environment variables
 func (c *EnvConfig) loadOutputFromYAMLEnv() {
 	var targets []OutputTarget
 	for targetIndex := 0; ; targetIndex++ {
@@ -242,6 +265,13 @@ func readYAMLOutputTarget(index int) (OutputTarget, bool) {
 	target.Host = os.Getenv(fmt.Sprintf("output.%d.host", index))
 	target.Username = os.Getenv(fmt.Sprintf("output.%d.username", index))
 	target.Password = os.Getenv(fmt.Sprintf("output.%d.password", index))
+	if v := os.Getenv(fmt.Sprintf("output.%d.tls", index)); v != "" {
+		target.TLS = strings.ToLower(v) == "true"
+	}
+	target.KnownHosts = os.Getenv(fmt.Sprintf("output.%d.known_hosts", index))
+	if v := os.Getenv(fmt.Sprintf("output.%d.insecure_skip_host_key_verification", index)); v != "" {
+		target.InsecureSkipHostKeyVerify = strings.ToLower(v) == "true"
+	}
 
 	if sslStr := os.Getenv(fmt.Sprintf("output.%d.ssl", index)); sslStr != "" {
 		target.SSL = toBoolPtr(strings.ToLower(sslStr) == "true")
@@ -259,7 +289,7 @@ func toBoolPtr(value bool) *bool {
 	return &value
 }
 
-// SetDefaults setzt Standard-Werte für die Konfiguration
+// SetDefaults sets default values for the configuration
 func (c *EnvConfig) SetDefaults() {
 	if c.Log.Level == "" {
 		c.Log.Level = "INFO"
@@ -269,20 +299,31 @@ func (c *EnvConfig) SetDefaults() {
 	}
 	// File Stability Defaults
 	if c.FileStability.MaxRetries == 0 {
-		c.FileStability.MaxRetries = 30 // 30 Versuche
+		c.FileStability.MaxRetries = 30 // 30 attempts
 	}
 	if c.FileStability.CheckInterval == 0 {
-		c.FileStability.CheckInterval = 1000 // 1000ms = 1 Sekunde
+		c.FileStability.CheckInterval = 1000 // 1000ms = 1 second
 	}
 	if c.FileStability.StabilityPeriod == 0 {
-		c.FileStability.StabilityPeriod = 1000 // 1000ms = 1 Sekunde
+		c.FileStability.StabilityPeriod = 1000 // 1000ms = 1 second
 	}
 	// Worker Pool Defaults
 	if c.WorkerPool.Workers == 0 {
-		c.WorkerPool.Workers = 4 // 4 parallele Worker
+		c.WorkerPool.Workers = 4 // 4 parallel workers
 	}
 	if c.WorkerPool.QueueSize == 0 {
-		c.WorkerPool.QueueSize = 100 // 100 Dateien in der Warteschlange
+		c.WorkerPool.QueueSize = 100 // 100 files in the queue
+	}
+	// Health Defaults
+	if c.Health.Port == 0 {
+		c.Health.Port = 8080
+	}
+	// S3 Timeout Defaults
+	if c.S3.OperationTimeout == 0 {
+		c.S3.OperationTimeout = 30 // 30 seconds for metadata operations
+	}
+	if c.S3.UploadTimeout == 0 {
+		c.S3.UploadTimeout = 600 // 10 minutes for uploads
 	}
 }
 
@@ -295,6 +336,11 @@ func (c *EnvConfig) Validate() error {
 	// Check that at least one target is configured.
 	if len(c.Output) == 0 {
 		return os.ErrInvalid
+	}
+
+	// 0 means "not set" - SetDefaults fills in the default port.
+	if c.Health.Port < 0 || c.Health.Port > 65535 {
+		return fmt.Errorf("invalid health port: %d (allowed: 1-65535, or 0 for the default)", c.Health.Port)
 	}
 
 	return nil

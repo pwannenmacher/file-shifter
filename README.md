@@ -24,6 +24,19 @@ destinations. After successful transfer to all destinations, the original file i
 - Docker support: Full container support
 - Default configuration: Works without configuration with default values
 
+### Directory Deletion Behavior
+
+Deleting or renaming watched directories does not crash the service:
+
+- **Subdirectory deleted/renamed**: The watcher for that path is cleaned up; the input directory and all other
+  subdirectories continue to be monitored normally.
+- **Subdirectory recreated**: A new watcher is registered automatically; files in the recreated directory are
+  processed as before.
+- **Input directory itself deleted**: The service keeps running but can no longer process files. The directory
+  must be recreated and the service restarted to resume operation. The health endpoint does not currently
+  report a missing input directory.
+- **Edge case**: A file created at the exact moment its parent directory is deleted may not be processed.
+
 ## Quick Start
 
 ```bash
@@ -302,6 +315,22 @@ output:
     ssl: false
     region: us-east-1
 ```
+
+## Security Notes
+
+- **SFTP host key verification is enforced by default (fail-closed).** The server's
+  host key must be present in a known_hosts file: either set `known-hosts` on the
+  target, or rely on the fallbacks `~/.ssh/known_hosts` and `/etc/ssh/ssh_known_hosts`.
+  Populate it with e.g. `ssh-keyscan -p <port> <host> >> known_hosts`. In containers,
+  mount the file and reference it via `known-hosts`. Verification can only be disabled
+  explicitly with `insecure-skip-host-key-verification: true`, which leaves the
+  connection open to man-in-the-middle attacks and logs a warning.
+- **Plain FTP transmits credentials and file contents unencrypted.** Prefer SFTP, or
+  enable explicit FTPS (AUTH TLS) for FTP targets with `tls: true`. Use plain FTP only
+  in trusted networks.
+- **Do not pass secrets on the command line.** Credentials in `--outputs` are visible
+  to all local users in the process list (`ps`). Use environment variables, a `.env`
+  file or `env.yaml` for access keys and passwords.
 
 ## Docker
 

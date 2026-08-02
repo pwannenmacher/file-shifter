@@ -7,12 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -41,6 +39,25 @@ type FileWatcher struct {
 	producersWG     sync.WaitGroup
 	stopOnce        sync.Once
 	stopping        atomic.Bool
+	// lifecycleMu orders pool startup and producer registration against
+	// Stop(): no WaitGroup.Add may race with the Waits during shutdown.
+	lifecycleMu sync.Mutex
+	// Event pipeline: deduplicated file paths await their stability check in
+	// an unbounded FIFO backlog processed by a fixed worker pool, instead of
+	// spawning one goroutine per fsnotify event. No event is ever dropped -
+	// memory grows only with the number of distinct pending files.
+	pendingMu            sync.Mutex
+	pendingCond          *sync.Cond
+	pendingFiles         []string
+	backlogWarnThreshold int
+	backlogWarnActive    bool
+	eventWorkerCount     int
+	eventWorkersWG       sync.WaitGroup
+	// Automatic retry for files whose transfer failed (e.g. one target
+	// temporarily unreachable): re-submitted with exponential backoff until
+	// they succeed or disappear from the input directory.
+	retryMu     sync.Mutex
+	retryCounts map[string]int
 }
 
 func NewFileWatcher(inputDir string, fileHandler *FileHandler, maxRetries int, checkInterval, stabilityPeriod time.Duration, workerCount, queueSize int) (*FileWatcher, error) {
@@ -49,19 +66,33 @@ func NewFileWatcher(inputDir string, fileHandler *FileHandler, maxRetries int, c
 		return nil, err
 	}
 
-	fw := &FileWatcher{
-		watcher:         watcher,
-		inputDir:        inputDir,
-		fileHandler:     fileHandler,
-		stopChan:        make(chan bool),
-		maxRetries:      maxRetries,
-		checkInterval:   checkInterval,
-		stabilityPeriod: stabilityPeriod,
-		fileQueue:       make(chan string, queueSize), // Configurable queue size
-		workerCount:     workerCount,                  // Configurable worker count
-		queueCapacity:   queueSize,                    // Store capacity for monitoring
-		processingFiles: make(map[string]struct{}),
+	// Event pipeline sizing derived from the worker pool configuration
+	eventWorkerCount := workerCount
+	if eventWorkerCount < 1 {
+		eventWorkerCount = 1
 	}
+	backlogWarnThreshold := queueSize * 10
+	if backlogWarnThreshold < 100 {
+		backlogWarnThreshold = 100
+	}
+
+	fw := &FileWatcher{
+		watcher:              watcher,
+		inputDir:             inputDir,
+		fileHandler:          fileHandler,
+		stopChan:             make(chan bool),
+		maxRetries:           maxRetries,
+		checkInterval:        checkInterval,
+		stabilityPeriod:      stabilityPeriod,
+		fileQueue:            make(chan string, queueSize), // Configurable queue size
+		workerCount:          workerCount,                  // Configurable worker count
+		queueCapacity:        queueSize,                    // Store capacity for monitoring
+		processingFiles:      make(map[string]struct{}),
+		backlogWarnThreshold: backlogWarnThreshold,
+		eventWorkerCount:     eventWorkerCount,
+		retryCounts:          make(map[string]int),
+	}
+	fw.pendingCond = sync.NewCond(&fw.pendingMu)
 
 	// Check lsof availability
 	fw.lsofAvailable = checkLsofAvailable()
@@ -78,17 +109,26 @@ func (fw *FileWatcher) Start() error {
 
 	slog.Info("File-Watcher started", "directory", fw.inputDir)
 
-	// Process existing files at startup
+	// Start worker pools and register the startup scan under the lifecycle
+	// lock so a concurrent Stop() either sees the complete setup or none.
+	fw.lifecycleMu.Lock()
+	if fw.stopping.Load() {
+		fw.lifecycleMu.Unlock()
+		return nil
+	}
+	fw.startEventWorkers()
+	fw.startWorkers()
 	fw.producersWG.Add(1)
+	fw.lifecycleMu.Unlock()
+
+	// Process existing files at startup
 	go func() {
 		defer fw.producersWG.Done()
 		fw.processExistingFiles()
 	}()
 
-	// Start worker pool
-	fw.startWorkers()
-
-	// Event-Loop
+	// Event-Loop: events are filtered, deduplicated and submitted to the
+	// bounded event queue inline - slow work happens in the event workers.
 	for {
 		select {
 		case <-fw.stopChan:
@@ -99,12 +139,7 @@ func (fw *FileWatcher) Start() error {
 			if !ok {
 				return nil
 			}
-			// Avoid blocking the event loop for too long
-			fw.producersWG.Add(1)
-			go func(evt fsnotify.Event) {
-				defer fw.producersWG.Done()
-				fw.handleEvent(evt)
-			}(event)
+			fw.handleEvent(event)
 
 		case err, ok := <-fw.watcher.Errors:
 			if !ok {
@@ -117,15 +152,23 @@ func (fw *FileWatcher) Start() error {
 
 func (fw *FileWatcher) Stop() {
 	fw.stopOnce.Do(func() {
+		// Taking the lifecycle lock guarantees that a concurrent Start()
+		// setup has either fully completed or will be skipped entirely.
+		fw.lifecycleMu.Lock()
 		fw.stopping.Store(true)
+		fw.lifecycleMu.Unlock()
 		close(fw.stopChan)
 
 		if err := fw.watcher.Close(); err != nil {
 			slog.Error("Error closing file watcher", "error", err)
 		}
 
-		// Wait for all producer goroutines to stop enqueuing new files before closing the queue.
+		// Wait for all producers (startup scan, directory handlers) and the
+		// event workers to stop before closing the transfer queue. The
+		// broadcast wakes event workers blocked on an empty backlog.
 		fw.producersWG.Wait()
+		fw.pendingCond.Broadcast()
+		fw.eventWorkersWG.Wait()
 		close(fw.fileQueue)
 		fw.workers.Wait()
 
@@ -191,11 +234,118 @@ func (fw *FileWatcher) handleModificationEvent(event fsnotify.Event) {
 	}
 
 	if info.IsDir() {
-		fw.handleDirectoryCreation(event)
+		// Directory creations are rare; handle them off the event loop so the
+		// watcher registration (which sleeps and walks) does not block events.
+		if !fw.registerProducer() {
+			return
+		}
+		go func(evt fsnotify.Event) {
+			defer fw.producersWG.Done()
+			fw.handleDirectoryCreation(evt)
+		}(event)
 		return
 	}
 
-	fw.processFile(event.Name)
+	fw.submitFile(event.Name)
+}
+
+// registerProducer increments producersWG unless shutdown has started, so no
+// Add can race with the Wait in Stop().
+func (fw *FileWatcher) registerProducer() bool {
+	fw.lifecycleMu.Lock()
+	defer fw.lifecycleMu.Unlock()
+	if fw.stopping.Load() {
+		return false
+	}
+	fw.producersWG.Add(1)
+	return true
+}
+
+// submitFile filters, deduplicates and appends a file to the event backlog.
+// The backlog is unbounded so no file event is ever lost; deduplication keeps
+// it at one entry per distinct pending file.
+func (fw *FileWatcher) submitFile(filePath string) {
+	if fw.stopping.Load() {
+		return
+	}
+
+	fileName := filepath.Base(filePath)
+	if fileName == "" || fileName[0] == '.' || fileName[0] == '~' {
+		slog.Debug("Ignore temporary/hidden file", "file", filePath)
+		return
+	}
+
+	if !fw.tryMarkFileForProcessing(filePath) {
+		slog.Debug("File already queued or processing - skip duplicate event", "file", filePath)
+		return
+	}
+
+	fw.pendingMu.Lock()
+	fw.pendingFiles = append(fw.pendingFiles, filePath)
+	backlog := len(fw.pendingFiles)
+	warnNow := backlog >= fw.backlogWarnThreshold && !fw.backlogWarnActive
+	if warnNow {
+		fw.backlogWarnActive = true
+	}
+	fw.pendingMu.Unlock()
+	fw.pendingCond.Signal()
+
+	if warnNow {
+		slog.Warn("Event backlog is large",
+			"backlog", backlog,
+			"threshold", fw.backlogWarnThreshold,
+			"message", "The event pipeline is saturated. All files will still be processed, but with delay. Consider increasing worker-pool workers.")
+	}
+}
+
+// nextPendingFile blocks until a file is available in the backlog or the
+// watcher is stopping. Returns false when the worker should exit.
+func (fw *FileWatcher) nextPendingFile() (string, bool) {
+	fw.pendingMu.Lock()
+	defer fw.pendingMu.Unlock()
+
+	for len(fw.pendingFiles) == 0 {
+		if fw.stopping.Load() {
+			return "", false
+		}
+		fw.pendingCond.Wait()
+	}
+	if fw.stopping.Load() {
+		return "", false
+	}
+
+	filePath := fw.pendingFiles[0]
+	fw.pendingFiles = fw.pendingFiles[1:]
+
+	// All-clear once the backlog has drained below half the threshold
+	if fw.backlogWarnActive && len(fw.pendingFiles) < fw.backlogWarnThreshold/2 {
+		fw.backlogWarnActive = false
+		slog.Info("Event backlog normalized", "backlog", len(fw.pendingFiles))
+	}
+
+	return filePath, true
+}
+
+// startEventWorkers starts the bounded pool that performs the (slow) file
+// stability checks for submitted events.
+func (fw *FileWatcher) startEventWorkers() {
+	slog.Info("Starting event worker pool", "count", fw.eventWorkerCount)
+	fw.eventWorkersWG.Add(fw.eventWorkerCount)
+	for i := 0; i < fw.eventWorkerCount; i++ {
+		go fw.eventWorker()
+	}
+}
+
+func (fw *FileWatcher) eventWorker() {
+	defer fw.eventWorkersWG.Done()
+
+	for {
+		filePath, ok := fw.nextPendingFile()
+		if !ok {
+			return
+		}
+		fw.processFileMarked(filePath)
+	}
 }
 
 // handleDirectoryCreation handles new directory creation events
@@ -222,7 +372,7 @@ func (fw *FileWatcher) handleDirectoryCreation(event fsnotify.Event) {
 			return err
 		}
 		if !info.IsDir() {
-			fw.processFile(path)
+			fw.submitFile(path)
 		}
 		return nil
 	})
@@ -232,28 +382,38 @@ func (fw *FileWatcher) handleDirectoryCreation(event fsnotify.Event) {
 }
 
 func (fw *FileWatcher) processFile(filePath string) {
+	if !fw.tryMarkFileForProcessing(filePath) {
+		slog.Debug("File already queued or processing - skip duplicate event", "file", filePath)
+		return
+	}
+
+	fw.processFileMarked(filePath)
+}
+
+// processFileMarked runs the stability checks for a file that has already been
+// marked via tryMarkFileForProcessing and enqueues it for transfer.
+func (fw *FileWatcher) processFileMarked(filePath string) {
 	if fw.stopping.Load() {
+		fw.unmarkFileForProcessing(filePath)
 		return
 	}
 
 	// Check whether the file still exists (it may have been deleted in the meantime).
 	fileInfo, err := os.Lstat(filePath)
 	if os.IsNotExist(err) {
+		fw.unmarkFileForProcessing(filePath)
 		slog.Debug("File no longer exists", "file", filePath)
 		return
 	}
 	if err != nil {
+		fw.unmarkFileForProcessing(filePath)
 		slog.Debug("Error reading file info", "file", filePath, "error", err)
 		return
 	}
 
 	if fileInfo.Mode()&os.ModeSymlink != 0 {
+		fw.unmarkFileForProcessing(filePath)
 		slog.Warn("Rejecting symlink file", "file", filePath)
-		return
-	}
-
-	if !fw.tryMarkFileForProcessing(filePath) {
-		slog.Debug("File already queued or processing - skip duplicate event", "file", filePath)
 		return
 	}
 
@@ -334,14 +494,75 @@ func (fw *FileWatcher) worker() {
 	defer fw.workers.Done()
 
 	for filePath := range fw.fileQueue {
-		if err := fw.fileHandler.ProcessFile(filePath, fw.inputDir); err != nil {
-			slog.Error("Error processing file", "file", filePath, "error", err)
-		}
+		err := fw.fileHandler.ProcessFile(filePath, fw.inputDir)
 		fw.unmarkFileForProcessing(filePath)
+
+		if err != nil {
+			slog.Error("Error processing file", "file", filePath, "error", err)
+			fw.scheduleRetry(filePath)
+		} else {
+			fw.clearRetryState(filePath)
+		}
 
 		// Queue monitoring after processing a file
 		fw.checkQueueCapacity()
 	}
+}
+
+// scheduleRetry re-submits a failed file after an exponential backoff so
+// transient target failures do not leave files stuck in the input directory
+// until the next event or restart.
+func (fw *FileWatcher) scheduleRetry(filePath string) {
+	if fw.stopping.Load() {
+		return
+	}
+
+	// The file may have been removed externally in the meantime
+	if _, err := os.Lstat(filePath); err != nil {
+		fw.clearRetryState(filePath)
+		return
+	}
+
+	fw.retryMu.Lock()
+	fw.retryCounts[filePath]++
+	attempt := fw.retryCounts[filePath]
+	fw.retryMu.Unlock()
+
+	delay := retryBackoff(attempt)
+	slog.Warn("Transfer failed - scheduling retry", "file", filePath, "attempt", attempt, "delay", delay)
+
+	if !fw.registerProducer() {
+		return
+	}
+	go func() {
+		defer fw.producersWG.Done()
+		select {
+		case <-fw.stopChan:
+		case <-time.After(delay):
+			fw.submitFile(filePath)
+		}
+	}()
+}
+
+func (fw *FileWatcher) clearRetryState(filePath string) {
+	fw.retryMu.Lock()
+	delete(fw.retryCounts, filePath)
+	fw.retryMu.Unlock()
+}
+
+// retryBackoff returns 5s doubling per attempt, capped at 5 minutes
+func retryBackoff(attempt int) time.Duration {
+	const base = 5 * time.Second
+	const maxDelay = 5 * time.Minute
+
+	if attempt > 6 { // 5s * 2^6 > maxDelay
+		return maxDelay
+	}
+	d := base << (attempt - 1)
+	if d > maxDelay {
+		return maxDelay
+	}
+	return d
 }
 
 func (fw *FileWatcher) tryMarkFileForProcessing(filePath string) bool {
@@ -381,7 +602,7 @@ func (fw *FileWatcher) processExistingFiles() {
 
 		// Only process files, not directories
 		if !info.IsDir() {
-			fw.processFile(path)
+			fw.submitFile(path)
 		}
 
 		return nil
@@ -397,6 +618,11 @@ func (fw *FileWatcher) waitForCompleteFile(filePath string) error {
 	slog.Debug("Check file completeness", "file", filePath)
 
 	for retry := 0; retry < fw.maxRetries; retry++ {
+		// Abort promptly on shutdown instead of sleeping through all retries
+		if fw.stopping.Load() {
+			return fmt.Errorf("shutdown in progress")
+		}
+
 		// 1. File stability check
 		if !fw.isFileStable(filePath, fw.stabilityPeriod) {
 			slog.Debug("File is not yet stable - please continue to wait", "file", filePath, "attempt", retry+1)
@@ -410,8 +636,8 @@ func (fw *FileWatcher) waitForCompleteFile(filePath string) error {
 			continue
 		}
 
-		// 3. lsof check (Unix/macOS only, if available)
-		if runtime.GOOS != "windows" && fw.lsofAvailable && fw.isFileOpenByOtherProcess(filePath) {
+		// 3. lsof check (if available)
+		if fw.lsofAvailable && fw.isFileOpenByOtherProcess(filePath) {
 			slog.Debug("File is still open according to lsof", "file", filePath, "attempt", retry+1)
 			time.Sleep(fw.checkInterval)
 			continue
@@ -462,52 +688,21 @@ func (fw *FileWatcher) safeCloseFile(file *os.File, filePath string) {
 	}
 }
 
-// canOpenExclusively attempts to gain exclusive access to the file
+// canOpenExclusively attempts to gain exclusive access to the file via a
+// non-blocking file lock (flock on Unix, LockFileEx on Windows).
 func (fw *FileWatcher) canOpenExclusively(filePath string) bool {
-	var file *os.File
-	var err error
-
-	if runtime.GOOS == "windows" {
-		// Windows: Attempt exclusive access
-		file, err = os.OpenFile(filePath, os.O_RDONLY, 0)
-		if err != nil {
-			if strings.Contains(strings.ToLower(err.Error()), "being used by another process") {
-				return false
-			}
-			// Other error - could be permission, treat as "available"
-			return true
-		}
-	} else {
-		// Unix/Linux/macOS: Try using flock
-		file, err = os.Open(filePath)
-		if err != nil {
-			return false
-		}
-
-		// Attempt a non-blocking exclusive lock
-		err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if err != nil {
-			fw.safeCloseFile(file, filePath)
-			return false
-		}
-		// Release exclusive lock
-		if err := syscall.Flock(int(file.Fd()), syscall.LOCK_UN); err != nil {
-			slog.Error("Error unlocking file", "file", filePath, "error", err)
-		}
+	file, err := os.Open(filePath)
+	if err != nil {
+		return false
 	}
 
-	if file != nil {
-		fw.safeCloseFile(file, filePath)
-	}
-	return true
+	locked := tryLockFileExclusively(file)
+	fw.safeCloseFile(file, filePath)
+	return locked
 }
 
 // isFileOpenByOtherProcess uses lsof to check whether the file is open by other processes
 func (fw *FileWatcher) isFileOpenByOtherProcess(filePath string) bool {
-	if runtime.GOOS == "windows" {
-		return false // lsof is not available on Windows
-	}
-
 	output, err := fw.executeLsof(filePath)
 	if err != nil {
 		return false
@@ -586,6 +781,18 @@ func (fw *FileWatcher) WorkerCount() int {
 	return fw.workerCount
 }
 
+// EventBacklog returns the current number of files awaiting their stability check
+func (fw *FileWatcher) EventBacklog() int {
+	fw.pendingMu.Lock()
+	defer fw.pendingMu.Unlock()
+	return len(fw.pendingFiles)
+}
+
+// EventBacklogWarnThreshold returns the backlog size at which a warning is issued
+func (fw *FileWatcher) EventBacklogWarnThreshold() int {
+	return fw.backlogWarnThreshold
+}
+
 // isRelevantProcess checks whether a process in the lsof line is relevant
 func (fw *FileWatcher) isRelevantProcess(filePath, line string) bool {
 	if strings.TrimSpace(line) == "" {
@@ -621,10 +828,6 @@ func (fw *FileWatcher) isRelevantProcess(filePath, line string) bool {
 
 // checkLsofAvailable checks if lsof command is available
 func checkLsofAvailable() bool {
-	if runtime.GOOS == "windows" {
-		return false
-	}
-
 	_, err := exec.LookPath("lsof")
 	if err != nil {
 		slog.Debug("lsof command not available - lsof checks will be skipped", "error", err)

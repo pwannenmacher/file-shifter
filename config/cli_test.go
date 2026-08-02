@@ -622,3 +622,56 @@ func BenchmarkApplyToCfg(b *testing.B) {
 		cli.ApplyToCfg(testCfg)
 	}
 }
+
+func TestCLIConfig_OutputsJSON_HyphenatedKeys(t *testing.T) {
+	// The documented JSON format uses hyphenated keys (access-key etc.);
+	// without json tags these silently mapped to nothing.
+	cli := &CLIConfig{
+		OutputsJSON: `[{"path":"s3://bucket/prefix","type":"s3","endpoint":"localhost:9000","access-key":"AKID","secret-key":"SECRET","ssl":false,"region":"us-east-1","known-hosts":"/tmp/kh"}]`,
+	}
+
+	cfg := &EnvConfig{}
+	if err := cli.ApplyToCfg(cfg); err != nil {
+		t.Fatalf("ApplyToCfg() error = %v", err)
+	}
+
+	if len(cfg.Output) != 1 {
+		t.Fatalf("expected 1 output target, got %d", len(cfg.Output))
+	}
+	target := cfg.Output[0]
+	if target.AccessKey != "AKID" {
+		t.Errorf("AccessKey = %q, want %q", target.AccessKey, "AKID")
+	}
+	if target.SecretKey != "SECRET" {
+		t.Errorf("SecretKey = %q, want %q", target.SecretKey, "SECRET")
+	}
+	if target.KnownHosts != "/tmp/kh" {
+		t.Errorf("KnownHosts = %q, want %q", target.KnownHosts, "/tmp/kh")
+	}
+	if target.SSL == nil || *target.SSL {
+		t.Error("SSL should be explicitly false")
+	}
+}
+
+func TestCLIConfig_HasInlineCredentials(t *testing.T) {
+	tests := []struct {
+		name    string
+		outputs string
+		want    bool
+	}{
+		{"empty", "", false},
+		{"filesystem only", `[{"path":"./out","type":"filesystem"}]`, false},
+		{"s3 with secret", `[{"path":"s3://b","type":"s3","access-key":"k","secret-key":"s"}]`, true},
+		{"sftp with password", `[{"path":"sftp://h/p","type":"sftp","username":"u","password":"p"}]`, true},
+		{"invalid json", `not-json`, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cli := &CLIConfig{OutputsJSON: tt.outputs}
+			if got := cli.HasInlineCredentials(); got != tt.want {
+				t.Errorf("HasInlineCredentials() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

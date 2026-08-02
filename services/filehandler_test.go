@@ -180,25 +180,91 @@ func TestParseS3Path(t *testing.T) {
 }
 
 func TestCreateSSHConfig(t *testing.T) {
-	ftpConfig := config.FTPConfig{
-		Username: "testuser",
-		Password: "testpass",
-	}
+	t.Run("insecure skip verification", func(t *testing.T) {
+		ftpConfig := config.FTPConfig{
+			Username:                  "testuser",
+			Password:                  "testpass",
+			InsecureSkipHostKeyVerify: true,
+		}
 
-	sshConfig := createSSHConfig(ftpConfig)
+		sshConfig, err := createSSHConfig(ftpConfig)
+		if err != nil {
+			t.Fatalf("createSSHConfig() error = %v", err)
+		}
+		if sshConfig == nil {
+			t.Fatal("createSSHConfig() returned nil")
+		}
+		if sshConfig.User != "testuser" {
+			t.Errorf("SSH config user = %q, want %q", sshConfig.User, "testuser")
+		}
+		if len(sshConfig.Auth) == 0 {
+			t.Error("SSH config should have auth methods")
+		}
+		if sshConfig.Timeout.Seconds() != 30 {
+			t.Errorf("SSH config timeout = %v, want 30s", sshConfig.Timeout)
+		}
+		if sshConfig.HostKeyCallback == nil {
+			t.Error("SSH config should have a host key callback")
+		}
+	})
 
-	if sshConfig == nil {
-		t.Fatal("createSSHConfig() returned nil")
-	}
-	if sshConfig.User != "testuser" {
-		t.Errorf("SSH config user = %q, want %q", sshConfig.User, "testuser")
-	}
-	if len(sshConfig.Auth) == 0 {
-		t.Error("SSH config should have auth methods")
-	}
-	if sshConfig.Timeout.Seconds() != 30 {
-		t.Errorf("SSH config timeout = %v, want 30s", sshConfig.Timeout)
-	}
+	t.Run("known_hosts file used for verification", func(t *testing.T) {
+		knownHostsFile := filepath.Join(t.TempDir(), "known_hosts")
+		// Valid known_hosts entry (host + dummy ed25519 key)
+		entry := "example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB3BJDcBUzL3N0jXNbNsDbbmDKgWsRfkTxV5jVLpOAKU\n"
+		if err := os.WriteFile(knownHostsFile, []byte(entry), 0o600); err != nil {
+			t.Fatalf("failed to write known_hosts: %v", err)
+		}
+
+		ftpConfig := config.FTPConfig{
+			Username:   "testuser",
+			Password:   "testpass",
+			KnownHosts: knownHostsFile,
+		}
+
+		sshConfig, err := createSSHConfig(ftpConfig)
+		if err != nil {
+			t.Fatalf("createSSHConfig() error = %v", err)
+		}
+		if sshConfig.HostKeyCallback == nil {
+			t.Fatal("expected host key callback from known_hosts")
+		}
+	})
+
+	t.Run("missing configured known_hosts fails closed", func(t *testing.T) {
+		ftpConfig := config.FTPConfig{
+			Username:   "testuser",
+			Password:   "testpass",
+			KnownHosts: filepath.Join(t.TempDir(), "does-not-exist"),
+		}
+
+		if _, err := createSSHConfig(ftpConfig); err == nil {
+			t.Fatal("expected error for missing known_hosts file")
+		}
+	})
+}
+
+func TestResolveKnownHostsFile(t *testing.T) {
+	t.Run("configured file wins", func(t *testing.T) {
+		knownHostsFile := filepath.Join(t.TempDir(), "known_hosts")
+		if err := os.WriteFile(knownHostsFile, []byte(""), 0o600); err != nil {
+			t.Fatalf("failed to write known_hosts: %v", err)
+		}
+
+		resolved, err := resolveKnownHostsFile(knownHostsFile)
+		if err != nil {
+			t.Fatalf("resolveKnownHostsFile() error = %v", err)
+		}
+		if resolved != knownHostsFile {
+			t.Errorf("resolved = %q, want %q", resolved, knownHostsFile)
+		}
+	})
+
+	t.Run("missing configured file errors", func(t *testing.T) {
+		if _, err := resolveKnownHostsFile(filepath.Join(t.TempDir(), "nope")); err == nil {
+			t.Fatal("expected error for missing configured file")
+		}
+	})
 }
 
 // Tests für calculateFileChecksum
@@ -553,7 +619,7 @@ func TestFileHandler_copyToS3_Structure_Extended(t *testing.T) {
 		t.Error("copyToS3() should return error when S3ClientManager is nil")
 	}
 
-	if !strings.Contains(err.Error(), "s3ClientManager not initialised") {
+	if !strings.Contains(err.Error(), "s3ClientManager not initialized") {
 		t.Errorf("Error should mention S3ClientManager not initialized: %v", err)
 	}
 }

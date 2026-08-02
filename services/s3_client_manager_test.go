@@ -1,7 +1,7 @@
 package services
 
 import (
-	"crypto/md5"
+	"crypto/sha256"
 	"fmt"
 	"testing"
 
@@ -168,8 +168,8 @@ func TestS3ClientManager_getClientKey_Consistency(t *testing.T) {
 	}
 
 	// Verify key format (should be a hex string)
-	if len(key1) != 32 { // MD5 hash is 32 characters in hex
-		t.Errorf("Expected key length 32, got %d", len(key1))
+	if len(key1) != 64 { // SHA-256 hash is 64 characters in hex
+		t.Errorf("Expected key length 64, got %d", len(key1))
 	}
 
 	// Verify expected key value
@@ -179,7 +179,7 @@ func TestS3ClientManager_getClientKey_Consistency(t *testing.T) {
 		config.SecretKey,
 		config.SSL,
 		config.Region)
-	expectedKey := fmt.Sprintf("%x", md5.Sum([]byte(expectedData)))
+	expectedKey := fmt.Sprintf("%x", sha256.Sum256([]byte(expectedData)))
 
 	if key1 != expectedKey {
 		t.Errorf("Key mismatch. Got %s, expected %s", key1, expectedKey)
