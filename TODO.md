@@ -2,10 +2,10 @@
 
 ## Test Gaps
 
-- [ ] Add tests for shutdown race resilience (`Stop()` while events are being produced).
-- [ ] Add tests for bounded retry behavior on repeated checksum mismatch.
-- [ ] Add tests for health endpoint timeout configuration.
-- [ ] Add tests for S3 context timeout behavior (`operationContext`/`uploadContext` incl. default fallback).
+- [x] Add tests for shutdown race resilience (`Stop()` while events are being produced).
+- [x] Add tests for bounded retry behavior on repeated checksum mismatch.
+- [x] Add tests for health endpoint timeout configuration.
+- [x] Add tests for S3 context timeout behavior (`operationContext`/`uploadContext` incl. default fallback).
 
 ## Nice to Have
 
