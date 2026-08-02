@@ -17,6 +17,7 @@ import (
 	"github.com/jlaffaye/ftp"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 type FileHandler struct {
@@ -60,15 +61,67 @@ func parseRemotePath(targetPath, relPath string, defaultPort string) (host, remo
 }
 
 // createSSHConfig creates an SSH configuration for SFTP
-func createSSHConfig(ftpConfig config.FTPConfig) *ssh.ClientConfig {
+func createSSHConfig(ftpConfig config.FTPConfig) (*ssh.ClientConfig, error) {
+	hostKeyCallback, err := createHostKeyCallback(ftpConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	return &ssh.ClientConfig{
 		User: ftpConfig.Username,
 		Auth: []ssh.AuthMethod{
 			ssh.Password(ftpConfig.Password),
 		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: hostKeyCallback,
 		Timeout:         30 * time.Second,
+	}, nil
+}
+
+// createHostKeyCallback builds the SSH host key verification callback.
+// Verification is fail-closed: without a usable known_hosts file the
+// connection is refused unless verification is explicitly disabled.
+func createHostKeyCallback(ftpConfig config.FTPConfig) (ssh.HostKeyCallback, error) {
+	if ftpConfig.InsecureSkipHostKeyVerify {
+		slog.Warn("SFTP host key verification is DISABLED - connection is vulnerable to man-in-the-middle attacks")
+		return ssh.InsecureIgnoreHostKey(), nil
 	}
+
+	knownHostsFile, err := resolveKnownHostsFile(ftpConfig.KnownHosts)
+	if err != nil {
+		return nil, err
+	}
+
+	callback, err := knownhosts.New(knownHostsFile)
+	if err != nil {
+		return nil, fmt.Errorf("error loading known_hosts file %s: %w", knownHostsFile, err)
+	}
+
+	return callback, nil
+}
+
+// resolveKnownHostsFile returns the known_hosts file to use: the configured
+// path, or the first existing standard location as fallback.
+func resolveKnownHostsFile(configured string) (string, error) {
+	if configured != "" {
+		if _, err := os.Stat(configured); err != nil {
+			return "", fmt.Errorf("configured known_hosts file is not accessible: %w", err)
+		}
+		return configured, nil
+	}
+
+	var candidates []string
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, filepath.Join(home, ".ssh", "known_hosts"))
+	}
+	candidates = append(candidates, "/etc/ssh/ssh_known_hosts")
+
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+
+	return "", fmt.Errorf("no known_hosts file found (checked: %s) - configure 'known-hosts' for the SFTP target or explicitly set 'insecure-skip-host-key-verification: true'", strings.Join(candidates, ", "))
 }
 
 // connectAndLoginFTP establishes an FTP connection and logs in
@@ -278,10 +331,25 @@ func (fh *FileHandler) copyToFilesystem(srcPath, relPath, targetBasePath string,
 	if err != nil {
 		return fmt.Errorf("error creating target file: %w", err)
 	}
-	defer dstFile.Close()
 
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
+	written, err := io.Copy(dstFile, srcFile)
+	if err != nil {
+		_ = dstFile.Close()
 		return fmt.Errorf("error copying the file: %w", err)
+	}
+
+	// Sync and Close can surface write errors (e.g. ENOSPC, NFS flush) after a
+	// successful io.Copy - they must be checked before the source file gets deleted.
+	if err := dstFile.Sync(); err != nil {
+		_ = dstFile.Close()
+		return fmt.Errorf("error syncing target file: %w", err)
+	}
+	if err := dstFile.Close(); err != nil {
+		return fmt.Errorf("error closing target file: %w", err)
+	}
+
+	if written != fileInfo.Size() {
+		return fmt.Errorf("incomplete copy: wrote %d of %d bytes to %s", written, fileInfo.Size(), targetPath)
 	}
 
 	// Set file permissions and timestamps
@@ -359,7 +427,10 @@ func (fh *FileHandler) copyToSFTP(srcPath, relPath string, target config.OutputT
 func (fh *FileHandler) copyToSFTPClient(srcPath, remotePath, host string, target config.OutputTarget) error {
 	// SSH-Verbindung aufbauen
 	ftpConfig := target.GetFTPConfig()
-	sshConfig := createSSHConfig(ftpConfig)
+	sshConfig, err := createSSHConfig(ftpConfig)
+	if err != nil {
+		return fmt.Errorf("SSH-Konfiguration fehlgeschlagen: %w", err)
+	}
 
 	conn, err := ssh.Dial("tcp", host, sshConfig)
 	if err != nil {
@@ -392,11 +463,27 @@ func (fh *FileHandler) copyToSFTPClient(srcPath, remotePath, host string, target
 	if err != nil {
 		return fmt.Errorf("fehler beim Erstellen der Remote-Datei: %w", err)
 	}
-	defer dstFile.Close()
 
 	// Datei übertragen
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
+	written, err := io.Copy(dstFile, srcFile)
+	if err != nil {
+		_ = dstFile.Close()
 		return fmt.Errorf("fehler beim SFTP-Upload: %w", err)
+	}
+
+	// SFTP überträgt gepufferte Writes erst beim Close - ein Fehler hier
+	// bedeutet eine unvollständige Remote-Datei.
+	if err := dstFile.Close(); err != nil {
+		return fmt.Errorf("fehler beim Abschließen der Remote-Datei: %w", err)
+	}
+
+	// Remote-Größe gegen die übertragenen Bytes verifizieren, bevor die Quelldatei gelöscht wird
+	remoteInfo, err := client.Stat(remotePath)
+	if err != nil {
+		return fmt.Errorf("fehler beim Verifizieren der Remote-Datei: %w", err)
+	}
+	if remoteInfo.Size() != written {
+		return fmt.Errorf("unvollständiger SFTP-Upload: remote %d Bytes, erwartet %d (%s)", remoteInfo.Size(), written, remotePath)
 	}
 
 	slog.Info("Datei erfolgreich über SFTP hochgeladen", "quelle", srcPath, "target", remotePath)
@@ -580,7 +667,10 @@ func (fh *FileHandler) deleteFromSFTP(relPath string, target config.OutputTarget
 	}
 
 	ftpConfig := target.GetFTPConfig()
-	sshConfig := createSSHConfig(ftpConfig)
+	sshConfig, err := createSSHConfig(ftpConfig)
+	if err != nil {
+		return fmt.Errorf("SSH configuration failed: %w", err)
+	}
 
 	conn, err := ssh.Dial("tcp", host, sshConfig)
 	if err != nil {

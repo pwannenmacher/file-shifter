@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"github.com/joho/godotenv"
@@ -191,7 +192,7 @@ func runApp(
 		return 1
 	}
 
-	// Initialise and start workers
+	// Initialize and start workers
 	workerSvc, err := createWorker(inputDir, outputTargets, cfg)
 	if err != nil {
 		slog.Error("Failed to create worker", "error", err)
@@ -199,7 +200,7 @@ func runApp(
 	}
 
 	// Start Health-Monitor
-	healthMonitor := createHealthMonitor(workerSvc, "8080")
+	healthMonitor := createHealthMonitor(workerSvc, strconv.Itoa(cfg.Health.Port))
 	healthMonitor.Start()
 
 	// Graceful Shutdown Handler

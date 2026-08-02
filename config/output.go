@@ -22,6 +22,10 @@ type OutputTarget struct {
 	Username string `yaml:"username,omitempty"`
 	Password string `yaml:"password,omitempty"`
 	Port     int    `yaml:"port,omitempty"`
+
+	// SFTP Host-Key-Verifikation
+	KnownHosts                string `yaml:"known-hosts,omitempty"`
+	InsecureSkipHostKeyVerify bool   `yaml:"insecure-skip-host-key-verification,omitempty"`
 }
 
 // GetS3Config extrahiert die S3-Konfiguration aus dem OutputTarget
@@ -53,10 +57,12 @@ func (ot *OutputTarget) GetFTPConfig() FTPConfig {
 	}
 
 	return FTPConfig{
-		Host:     host,
-		Username: ot.Username,
-		Password: ot.Password,
-		Port:     port,
+		Host:                      host,
+		Username:                  ot.Username,
+		Password:                  ot.Password,
+		Port:                      port,
+		KnownHosts:                ot.KnownHosts,
+		InsecureSkipHostKeyVerify: ot.InsecureSkipHostKeyVerify,
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"sync"
 	"time"
 )
 
@@ -36,22 +35,15 @@ type HealthCheck struct {
 }
 
 type HealthMonitor struct {
-	worker      *Worker
-	port        string
-	server      *http.Server
-	mu          sync.RWMutex
-	lastCheck   time.Time
-	isHealthy   bool
-	stopChan    chan bool
-	checkTicker *time.Ticker
+	worker *Worker
+	port   string
+	server *http.Server
 }
 
 func NewHealthMonitor(worker *Worker, port string) *HealthMonitor {
 	return &HealthMonitor{
-		worker:    worker,
-		port:      port,
-		stopChan:  make(chan bool),
-		isHealthy: true,
+		worker: worker,
+		port:   port,
 	}
 }
 
@@ -63,13 +55,13 @@ func (hm *HealthMonitor) Start() {
 	mux.HandleFunc("/health/ready", hm.readinessHandler)
 
 	hm.server = &http.Server{
-		Addr:    ":" + hm.port,
-		Handler: mux,
+		Addr:              ":" + hm.port,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
-
-	// Periodic Health-Checks
-	hm.checkTicker = time.NewTicker(10 * time.Second)
-	go hm.periodicHealthCheck()
 
 	// Start HTTP Server
 	go func() {
@@ -81,56 +73,12 @@ func (hm *HealthMonitor) Start() {
 }
 
 func (hm *HealthMonitor) Stop() {
-	if hm.checkTicker != nil {
-		hm.checkTicker.Stop()
-	}
-	close(hm.stopChan)
 	if hm.server != nil {
 		if err := hm.server.Close(); err != nil {
 			slog.Error("Error closing health check server", "error", err)
 		}
 	}
 	slog.Info("Health-Check server stopped")
-}
-
-func (hm *HealthMonitor) periodicHealthCheck() {
-	for {
-		select {
-		case <-hm.stopChan:
-			return
-		case <-hm.checkTicker.C:
-			hm.performHealthCheck()
-		}
-	}
-}
-
-func (hm *HealthMonitor) performHealthCheck() {
-	hm.mu.Lock()
-	defer hm.mu.Unlock()
-
-	hm.lastCheck = time.Now()
-	hm.isHealthy = true
-
-	// Check FileWatcher status
-	if hm.worker.FileWatcher == nil {
-		slog.Warn("Health-Check: FileWatcher is not initialized")
-		hm.isHealthy = false
-		return
-	}
-
-	// Check if the file queue is too full (over 90%)
-	queueSize := hm.worker.FileWatcher.QueueSize()
-	queueCapacity := hm.worker.FileWatcher.QueueCapacity()
-	if queueCapacity > 0 {
-		fillPercentage := float64(queueSize) / float64(queueCapacity) * 100
-		if fillPercentage > 90 {
-			slog.Warn("Health-Check: FileQueue is critically full",
-				"fill_percentage", fillPercentage,
-				"queue_size", queueSize,
-				"capacity", queueCapacity)
-			hm.isHealthy = false
-		}
-	}
 }
 
 func (hm *HealthMonitor) healthHandler(w http.ResponseWriter, _ *http.Request) {
@@ -176,9 +124,6 @@ func (hm *HealthMonitor) readinessHandler(w http.ResponseWriter, _ *http.Request
 }
 
 func (hm *HealthMonitor) HealthStatus() HealthCheck {
-	hm.mu.RLock()
-	defer hm.mu.RUnlock()
-
 	components := make(map[string]ComponentHealth)
 	overallStatus := HealthStatusHealthy
 
