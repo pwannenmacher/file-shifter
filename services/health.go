@@ -153,6 +153,19 @@ func (hm *HealthMonitor) HealthStatus() HealthCheck {
 			}
 		}
 
+		// A large event backlog means files are processed with delay -
+		// surface this as degraded (nothing is lost, only queued)
+		backlog := hm.worker.FileWatcher.EventBacklog()
+		if backlog >= hm.worker.FileWatcher.EventBacklogWarnThreshold() {
+			message = fmt.Sprintf("%s; event backlog is large (%d files awaiting stability check)", message, backlog)
+			if status == HealthStatusHealthy {
+				status = HealthStatusDegraded
+			}
+			if overallStatus == HealthStatusHealthy {
+				overallStatus = HealthStatusDegraded
+			}
+		}
+
 		components["file_watcher"] = ComponentHealth{
 			Status:      status,
 			LastChecked: time.Now(),
