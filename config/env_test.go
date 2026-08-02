@@ -473,10 +473,6 @@ func TestEnvConfig_LoadOutputTargetsEdgeCases(t *testing.T) {
 
 // Helper functions
 
-func boolPtr(b bool) *bool {
-	return &b
-}
-
 func compareOutputTargetByPath(t *testing.T, actual, expected OutputTarget, path string) {
 	if actual.Path != expected.Path {
 		t.Errorf("Output[%s].Path = %v, want %v", path, actual.Path, expected.Path)

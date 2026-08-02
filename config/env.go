@@ -108,12 +108,12 @@ func (c *EnvConfig) loadOutputTargetsFromEnv() {
 func (c *EnvConfig) loadTargetProperties(target *OutputTarget, index string) {
 	prefix := "OUTPUT_" + index + "_"
 
-	// Grundlegende Eigenschaften
+	// Basic properties
 	if value := os.Getenv(prefix + "TYPE"); value != "" {
 		target.Type = value
 	}
 
-	// S3-spezifische Eigenschaften
+	// S3-specific properties
 	if value := os.Getenv(prefix + "ENDPOINT"); value != "" {
 		target.Endpoint = value
 	}
@@ -130,7 +130,7 @@ func (c *EnvConfig) loadTargetProperties(target *OutputTarget, index string) {
 		target.Region = value
 	}
 
-	// FTP/SFTP-spezifische Eigenschaften
+	// FTP/SFTP-specific properties
 	if value := os.Getenv(prefix + "HOST"); value != "" {
 		target.Host = value
 	}
@@ -151,20 +151,20 @@ func (c *EnvConfig) loadTargetProperties(target *OutputTarget, index string) {
 	}
 }
 
-// loadFileStabilityFromEnv lädt File-Stability Konfiguration aus Umgebungsvariablen
+// loadFileStabilityFromEnv loads the file stability configuration from environment variables
 func (c *EnvConfig) loadFileStabilityFromEnv() {
 	c.FileStability.MaxRetries = readPositiveIntEnv(c.FileStability.MaxRetries, "FILE_STABILITY_MAX_RETRIES", "file_stability.max_retries")
 	c.FileStability.CheckInterval = readPositiveIntEnv(c.FileStability.CheckInterval, "FILE_STABILITY_CHECK_INTERVAL", "file_stability.check_interval")
 	c.FileStability.StabilityPeriod = readPositiveIntEnv(c.FileStability.StabilityPeriod, "FILE_STABILITY_PERIOD", "file_stability.period")
 }
 
-// loadWorkerPoolFromEnv lädt die Worker-Pool-Konfiguration aus Umgebungsvariablen
+// loadWorkerPoolFromEnv loads the worker pool configuration from environment variables
 func (c *EnvConfig) loadWorkerPoolFromEnv() {
 	c.WorkerPool.Workers = readPositiveIntEnv(c.WorkerPool.Workers, "WORKER_POOL_WORKERS", "worker_pool.workers")
 	c.WorkerPool.QueueSize = readPositiveIntEnv(c.WorkerPool.QueueSize, "WORKER_POOL_QUEUE_SIZE", "worker_pool.queue_size")
 }
 
-// loadOutputFromYAMLEnv lädt Output-Targets aus YAML-strukturierten Umgebungsvariablen
+// loadOutputFromYAMLEnv loads output targets from YAML-structured environment variables
 func (c *EnvConfig) loadOutputFromYAMLEnv() {
 	var targets []OutputTarget
 	for targetIndex := 0; ; targetIndex++ {
@@ -289,7 +289,7 @@ func toBoolPtr(value bool) *bool {
 	return &value
 }
 
-// SetDefaults setzt Standard-Werte für die Konfiguration
+// SetDefaults sets default values for the configuration
 func (c *EnvConfig) SetDefaults() {
 	if c.Log.Level == "" {
 		c.Log.Level = "INFO"
@@ -299,20 +299,20 @@ func (c *EnvConfig) SetDefaults() {
 	}
 	// File Stability Defaults
 	if c.FileStability.MaxRetries == 0 {
-		c.FileStability.MaxRetries = 30 // 30 Versuche
+		c.FileStability.MaxRetries = 30 // 30 attempts
 	}
 	if c.FileStability.CheckInterval == 0 {
-		c.FileStability.CheckInterval = 1000 // 1000ms = 1 Sekunde
+		c.FileStability.CheckInterval = 1000 // 1000ms = 1 second
 	}
 	if c.FileStability.StabilityPeriod == 0 {
-		c.FileStability.StabilityPeriod = 1000 // 1000ms = 1 Sekunde
+		c.FileStability.StabilityPeriod = 1000 // 1000ms = 1 second
 	}
 	// Worker Pool Defaults
 	if c.WorkerPool.Workers == 0 {
-		c.WorkerPool.Workers = 4 // 4 parallele Worker
+		c.WorkerPool.Workers = 4 // 4 parallel workers
 	}
 	if c.WorkerPool.QueueSize == 0 {
-		c.WorkerPool.QueueSize = 100 // 100 Dateien in der Warteschlange
+		c.WorkerPool.QueueSize = 100 // 100 files in the queue
 	}
 	// Health Defaults
 	if c.Health.Port == 0 {
@@ -320,10 +320,10 @@ func (c *EnvConfig) SetDefaults() {
 	}
 	// S3 Timeout Defaults
 	if c.S3.OperationTimeout == 0 {
-		c.S3.OperationTimeout = 30 // 30 Sekunden für Metadaten-Operationen
+		c.S3.OperationTimeout = 30 // 30 seconds for metadata operations
 	}
 	if c.S3.UploadTimeout == 0 {
-		c.S3.UploadTimeout = 600 // 10 Minuten für Uploads
+		c.S3.UploadTimeout = 600 // 10 minutes for uploads
 	}
 }
 

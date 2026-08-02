@@ -55,7 +55,8 @@ func TestNewMinIOConnection(t *testing.T) { // NOSONAR - matrixartiger Konfigura
 
 			if !tt.expectErr {
 				if minioConn == nil {
-					t.Error("MinIO Connection sollte nicht nil sein")
+					t.Error("MinIO connection should not be nil")
+					return
 				}
 				if minioConn.MinIOClient == nil {
 					t.Error("MinIO Client sollte nicht nil sein")

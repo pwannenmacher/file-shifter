@@ -35,7 +35,7 @@ func NewMinIOConnection(endpoint, accessKey, secretKey string, useSSL bool) (*Mi
 		return nil, err
 	}
 
-	slog.Info("MinIO-Client erfolgreich initialisiert", "endpoint", endpoint)
+	slog.Info("MinIO client initialized successfully", "endpoint", endpoint)
 	return &MinIO{
 		MinIOClient:      minioClient,
 		OperationTimeout: defaultOperationTimeout,
@@ -79,7 +79,7 @@ func (m *MinIO) EnsureBucket(bucketName string) error {
 		if err != nil {
 			return err
 		}
-		slog.Info("Bucket erfolgreich erstellt", "bucket", bucketName)
+		slog.Info("Bucket created successfully", "bucket", bucketName)
 	}
 
 	return nil

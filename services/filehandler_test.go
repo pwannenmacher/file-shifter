@@ -619,7 +619,7 @@ func TestFileHandler_copyToS3_Structure_Extended(t *testing.T) {
 		t.Error("copyToS3() should return error when S3ClientManager is nil")
 	}
 
-	if !strings.Contains(err.Error(), "s3ClientManager not initialised") {
+	if !strings.Contains(err.Error(), "s3ClientManager not initialized") {
 		t.Errorf("Error should mention S3ClientManager not initialized: %v", err)
 	}
 }
