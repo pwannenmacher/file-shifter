@@ -131,7 +131,7 @@ func runApp(
 
 	// Validate CLI configuration
 	if err := cliCfg.Validate(); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Fehler in Kommandozeilen-Argumenten: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Error in command line arguments: %v\n", err)
 		return 1
 	}
 
@@ -143,8 +143,8 @@ func runApp(
 
 	cfg, err := loadEnvYamlFunc()
 	if err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, "Konfigurationsdatei konnte nicht geladen werden:", err)
-		cfg = &config.EnvConfig{} // leere Konfiguration
+		_, _ = fmt.Fprintln(os.Stderr, "Configuration file could not be loaded:", err)
+		cfg = &config.EnvConfig{} // empty configuration
 	}
 
 	_ = loadDotEnv()

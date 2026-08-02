@@ -85,7 +85,7 @@ func (scm *S3ClientManager) GetOrCreateClient(s3Config config.S3Config) (*MinIO,
 
 	// Perform health check
 	if err := minioClient.HealthCheck(); err != nil {
-		return nil, fmt.Errorf("minIO-HealthCheck fehlgeschlagen: %w", err)
+		return nil, fmt.Errorf("minio health check failed: %w", err)
 	}
 
 	// Save client in cache
@@ -110,7 +110,7 @@ func (scm *S3ClientManager) Close() {
 		}
 	}
 
-	slog.Info("Alle MinIO-Clients geschlossen")
+	slog.Info("All MinIO clients closed")
 }
 
 // GetActiveClientCount returns the number of active clients

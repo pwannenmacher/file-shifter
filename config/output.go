@@ -10,28 +10,28 @@ type OutputTarget struct {
 	Path string `yaml:"path" json:"path"`
 	Type string `yaml:"type" json:"type"`
 
-	// S3-spezifische Konfiguration
+	// S3-specific configuration
 	Endpoint  string `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
 	AccessKey string `yaml:"access-key,omitempty" json:"access-key,omitempty"`
 	SecretKey string `yaml:"secret-key,omitempty" json:"secret-key,omitempty"`
 	SSL       *bool  `yaml:"ssl,omitempty" json:"ssl,omitempty"`
 	Region    string `yaml:"region,omitempty" json:"region,omitempty"`
 
-	// FTP/SFTP-spezifische Konfiguration
+	// FTP/SFTP-specific configuration
 	Host     string `yaml:"host,omitempty" json:"host,omitempty"`
 	Username string `yaml:"username,omitempty" json:"username,omitempty"`
 	Password string `yaml:"password,omitempty" json:"password,omitempty"`
 	Port     int    `yaml:"port,omitempty" json:"port,omitempty"`
-	TLS      bool   `yaml:"tls,omitempty" json:"tls,omitempty"` // FTP: explizites FTPS (AUTH TLS)
+	TLS      bool   `yaml:"tls,omitempty" json:"tls,omitempty"` // FTP: explicit FTPS (AUTH TLS)
 
-	// SFTP Host-Key-Verifikation
+	// SFTP host key verification
 	KnownHosts                string `yaml:"known-hosts,omitempty" json:"known-hosts,omitempty"`
 	InsecureSkipHostKeyVerify bool   `yaml:"insecure-skip-host-key-verification,omitempty" json:"insecure-skip-host-key-verification,omitempty"`
 }
 
-// GetS3Config extrahiert die S3-Konfiguration aus dem OutputTarget
+// GetS3Config extracts the S3 configuration from the OutputTarget
 func (ot *OutputTarget) GetS3Config() S3Config {
-	ssl := true // Standard-Wert
+	ssl := true // default value
 	if ot.SSL != nil {
 		ssl = *ot.SSL
 	}
@@ -44,7 +44,7 @@ func (ot *OutputTarget) GetS3Config() S3Config {
 	}
 }
 
-// GetFTPConfig extrahiert die FTP-Konfiguration aus dem OutputTarget
+// GetFTPConfig extracts the FTP configuration from the OutputTarget
 func (ot *OutputTarget) GetFTPConfig() FTPConfig {
 	host := ot.Host
 	port := ot.Port

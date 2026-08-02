@@ -80,7 +80,7 @@ func (cli *CLIConfig) ApplyToCfg(cfg *EnvConfig) error {
 
 // printUsage prints the usage information
 func printUsage() {
-	_, err := fmt.Fprintf(os.Stderr, `File Shifter - Robuster File-Transfer-Service
+	_, err := fmt.Fprintf(os.Stderr, `File Shifter - Robust file transfer service
 
 USAGE:
     %s [OPTIONS]

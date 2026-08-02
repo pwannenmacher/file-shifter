@@ -68,12 +68,12 @@ func (w *Worker) Start() {
 	// Start file watcher in separate goroutine
 	go func() {
 		if err := w.FileWatcher.Start(); err != nil {
-			slog.Error("File-Watcher Fehler", "err", err)
+			slog.Error("File watcher error", "err", err)
 		}
 	}()
 
 	<-w.stopChan
-	slog.Info("Worker gestoppt")
+	slog.Info("Worker stopped")
 }
 
 func (w *Worker) Stop() {
@@ -108,7 +108,7 @@ func (w *Worker) validateTargets(targets []config.OutputTarget) error {
 	return nil
 }
 
-// validateSingleTarget validiert ein einzelnes Target
+// validateSingleTarget validates a single target
 func (w *Worker) validateSingleTarget(target config.OutputTarget) error {
 	switch target.Type {
 	case "s3":
@@ -131,7 +131,7 @@ func (w *Worker) validateS3Target(target config.OutputTarget) error {
 		return fmt.Errorf("invalid S3 configuration for target: %s", target.Path)
 	}
 
-	// S3-Client vorläufig erstellen und testen
+	// Create and test the S3 client upfront
 	if _, err := w.S3ClientManager.GetOrCreateClient(s3Config); err != nil {
 		slog.Error("S3 client creation failed", "endpoint", s3Config.Endpoint, "err", err)
 		return fmt.Errorf("s3 client creation failed for %s: %w", s3Config.Endpoint, err)

@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -638,8 +637,8 @@ func (fw *FileWatcher) waitForCompleteFile(filePath string) error {
 			continue
 		}
 
-		// 3. lsof check (Unix/macOS only, if available)
-		if runtime.GOOS != "windows" && fw.lsofAvailable && fw.isFileOpenByOtherProcess(filePath) {
+		// 3. lsof check (if available)
+		if fw.lsofAvailable && fw.isFileOpenByOtherProcess(filePath) {
 			slog.Debug("File is still open according to lsof", "file", filePath, "attempt", retry+1)
 			time.Sleep(fw.checkInterval)
 			continue
@@ -690,52 +689,29 @@ func (fw *FileWatcher) safeCloseFile(file *os.File, filePath string) {
 	}
 }
 
-// canOpenExclusively attempts to gain exclusive access to the file
+// canOpenExclusively attempts to gain exclusive access to the file via flock
 func (fw *FileWatcher) canOpenExclusively(filePath string) bool {
-	var file *os.File
-	var err error
-
-	if runtime.GOOS == "windows" {
-		// Windows: Attempt exclusive access
-		file, err = os.OpenFile(filePath, os.O_RDONLY, 0)
-		if err != nil {
-			if strings.Contains(strings.ToLower(err.Error()), "being used by another process") {
-				return false
-			}
-			// Other error - could be permission, treat as "available"
-			return true
-		}
-	} else {
-		// Unix/Linux/macOS: Try using flock
-		file, err = os.Open(filePath)
-		if err != nil {
-			return false
-		}
-
-		// Attempt a non-blocking exclusive lock
-		err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if err != nil {
-			fw.safeCloseFile(file, filePath)
-			return false
-		}
-		// Release exclusive lock
-		if err := syscall.Flock(int(file.Fd()), syscall.LOCK_UN); err != nil {
-			slog.Error("Error unlocking file", "file", filePath, "error", err)
-		}
+	file, err := os.Open(filePath)
+	if err != nil {
+		return false
 	}
 
-	if file != nil {
+	// Attempt a non-blocking exclusive lock
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		fw.safeCloseFile(file, filePath)
+		return false
 	}
+	// Release exclusive lock
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_UN); err != nil {
+		slog.Error("Error unlocking file", "file", filePath, "error", err)
+	}
+
+	fw.safeCloseFile(file, filePath)
 	return true
 }
 
 // isFileOpenByOtherProcess uses lsof to check whether the file is open by other processes
 func (fw *FileWatcher) isFileOpenByOtherProcess(filePath string) bool {
-	if runtime.GOOS == "windows" {
-		return false // lsof is not available on Windows
-	}
-
 	output, err := fw.executeLsof(filePath)
 	if err != nil {
 		return false
@@ -861,10 +837,6 @@ func (fw *FileWatcher) isRelevantProcess(filePath, line string) bool {
 
 // checkLsofAvailable checks if lsof command is available
 func checkLsofAvailable() bool {
-	if runtime.GOOS == "windows" {
-		return false
-	}
-
 	_, err := exec.LookPath("lsof")
 	if err != nil {
 		slog.Debug("lsof command not available - lsof checks will be skipped", "error", err)

@@ -86,7 +86,7 @@ func (m *RemoteConnManager) GetSFTPClient(host string, cfg config.FTPConfig) (*s
 
 	sshClient, err := ssh.Dial("tcp", host, sshConfig)
 	if err != nil {
-		return nil, fmt.Errorf("SSH-Verbindung fehlgeschlagen: %w", err)
+		return nil, fmt.Errorf("SSH connection failed: %w", err)
 	}
 
 	sftpClient, err := sftp.NewClient(sshClient)
@@ -94,7 +94,7 @@ func (m *RemoteConnManager) GetSFTPClient(host string, cfg config.FTPConfig) (*s
 		if closeErr := sshClient.Close(); closeErr != nil {
 			slog.Debug("Error closing SSH connection", "error", closeErr)
 		}
-		return nil, fmt.Errorf("SFTP-Client-Erstellung fehlgeschlagen: %w", err)
+		return nil, fmt.Errorf("SFTP client creation failed: %w", err)
 	}
 
 	m.sftpClients[key] = &sftpConn{sshClient: sshClient, sftpClient: sftpClient}
