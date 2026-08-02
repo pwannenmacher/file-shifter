@@ -28,6 +28,10 @@ type EnvConfig struct {
 	Health struct {
 		Port int `yaml:"port"` // Port for the health check HTTP server
 	} `yaml:"health"`
+	S3 struct {
+		OperationTimeout int `yaml:"operation-timeout"` // Timeout in seconds for S3 metadata operations (bucket checks, stats, deletes)
+		UploadTimeout    int `yaml:"upload-timeout"`    // Timeout in seconds for S3 uploads
+	} `yaml:"s3"`
 }
 
 // LoadFromEnvironment loads the configuration from environment variables
@@ -48,6 +52,10 @@ func (c *EnvConfig) LoadFromEnvironment() error {
 
 	// Health server configuration
 	c.Health.Port = readPositiveIntEnv(c.Health.Port, "HEALTH_PORT", "health.port")
+
+	// S3 timeout configuration
+	c.S3.OperationTimeout = readPositiveIntEnv(c.S3.OperationTimeout, "S3_OPERATION_TIMEOUT", "s3.operation_timeout")
+	c.S3.UploadTimeout = readPositiveIntEnv(c.S3.UploadTimeout, "S3_UPLOAD_TIMEOUT", "s3.upload_timeout")
 
 	// Output Targets - flat structure
 	c.loadOutputTargetsFromEnv()
@@ -131,6 +139,9 @@ func (c *EnvConfig) loadTargetProperties(target *OutputTarget, index string) {
 	}
 	if value := os.Getenv(prefix + "PASSWORD"); value != "" {
 		target.Password = value
+	}
+	if value := os.Getenv(prefix + "TLS"); value != "" {
+		target.TLS = strings.ToLower(value) == "true"
 	}
 	if value := os.Getenv(prefix + "KNOWN_HOSTS"); value != "" {
 		target.KnownHosts = value
@@ -254,6 +265,9 @@ func readYAMLOutputTarget(index int) (OutputTarget, bool) {
 	target.Host = os.Getenv(fmt.Sprintf("output.%d.host", index))
 	target.Username = os.Getenv(fmt.Sprintf("output.%d.username", index))
 	target.Password = os.Getenv(fmt.Sprintf("output.%d.password", index))
+	if v := os.Getenv(fmt.Sprintf("output.%d.tls", index)); v != "" {
+		target.TLS = strings.ToLower(v) == "true"
+	}
 	target.KnownHosts = os.Getenv(fmt.Sprintf("output.%d.known_hosts", index))
 	if v := os.Getenv(fmt.Sprintf("output.%d.insecure_skip_host_key_verification", index)); v != "" {
 		target.InsecureSkipHostKeyVerify = strings.ToLower(v) == "true"
@@ -303,6 +317,13 @@ func (c *EnvConfig) SetDefaults() {
 	// Health Defaults
 	if c.Health.Port == 0 {
 		c.Health.Port = 8080
+	}
+	// S3 Timeout Defaults
+	if c.S3.OperationTimeout == 0 {
+		c.S3.OperationTimeout = 30 // 30 Sekunden für Metadaten-Operationen
+	}
+	if c.S3.UploadTimeout == 0 {
+		c.S3.UploadTimeout = 600 // 10 Minuten für Uploads
 	}
 }
 

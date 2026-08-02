@@ -143,7 +143,7 @@ func runApp(
 
 	cfg, err := loadEnvYamlFunc()
 	if err != nil {
-		fmt.Println("Konfigurationsdatei konnte nicht geladen werden:", err)
+		_, _ = fmt.Fprintln(os.Stderr, "Konfigurationsdatei konnte nicht geladen werden:", err)
 		cfg = &config.EnvConfig{} // leere Konfiguration
 	}
 
@@ -155,7 +155,7 @@ func runApp(
 	// Load environment variables (overwrites YAML and .env)
 	err = cfg.LoadFromEnvironment()
 	if err != nil {
-		fmt.Println("Error loading environment variables:", err)
+		_, _ = fmt.Fprintln(os.Stderr, "Error loading environment variables:", err)
 	}
 
 	// Apply CLI parameters (highest priority)
