@@ -22,6 +22,7 @@ type OutputTarget struct {
 	Username string `yaml:"username,omitempty"`
 	Password string `yaml:"password,omitempty"`
 	Port     int    `yaml:"port,omitempty"`
+	TLS      bool   `yaml:"tls,omitempty"` // FTP: explizites FTPS (AUTH TLS)
 
 	// SFTP Host-Key-Verifikation
 	KnownHosts                string `yaml:"known-hosts,omitempty"`
@@ -61,6 +62,7 @@ func (ot *OutputTarget) GetFTPConfig() FTPConfig {
 		Username:                  ot.Username,
 		Password:                  ot.Password,
 		Port:                      port,
+		TLS:                       ot.TLS,
 		KnownHosts:                ot.KnownHosts,
 		InsecureSkipHostKeyVerify: ot.InsecureSkipHostKeyVerify,
 	}

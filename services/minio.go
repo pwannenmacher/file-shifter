@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"mime"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -13,10 +15,15 @@ import (
 
 const (
 	ErrMinIOClientNotInitialized = "MinIO client is not initialized"
+
+	defaultOperationTimeout = 30 * time.Second
+	defaultUploadTimeout    = 10 * time.Minute
 )
 
 type MinIO struct {
-	MinIOClient *minio.Client
+	MinIOClient      *minio.Client
+	OperationTimeout time.Duration // Timeout for metadata operations (bucket checks, stats, deletes)
+	UploadTimeout    time.Duration // Timeout for uploads
 }
 
 func NewMinIOConnection(endpoint, accessKey, secretKey string, useSSL bool) (*MinIO, error) {
@@ -29,7 +36,29 @@ func NewMinIOConnection(endpoint, accessKey, secretKey string, useSSL bool) (*Mi
 	}
 
 	slog.Info("MinIO-Client erfolgreich initialisiert", "endpoint", endpoint)
-	return &MinIO{MinIOClient: minioClient}, nil
+	return &MinIO{
+		MinIOClient:      minioClient,
+		OperationTimeout: defaultOperationTimeout,
+		UploadTimeout:    defaultUploadTimeout,
+	}, nil
+}
+
+// operationContext returns a context with the configured metadata operation timeout
+func (m *MinIO) operationContext() (context.Context, context.CancelFunc) {
+	timeout := m.OperationTimeout
+	if timeout <= 0 {
+		timeout = defaultOperationTimeout
+	}
+	return context.WithTimeout(context.Background(), timeout)
+}
+
+// uploadContext returns a context with the configured upload timeout
+func (m *MinIO) uploadContext() (context.Context, context.CancelFunc) {
+	timeout := m.UploadTimeout
+	if timeout <= 0 {
+		timeout = defaultUploadTimeout
+	}
+	return context.WithTimeout(context.Background(), timeout)
 }
 
 func (m *MinIO) EnsureBucket(bucketName string) error {
@@ -37,7 +66,8 @@ func (m *MinIO) EnsureBucket(bucketName string) error {
 		return errors.New(ErrMinIOClientNotInitialized)
 	}
 
-	ctx := context.Background()
+	ctx, cancel := m.operationContext()
+	defer cancel()
 
 	exists, err := m.MinIOClient.BucketExists(ctx, bucketName)
 	if err != nil {
@@ -60,19 +90,12 @@ func (m *MinIO) UploadFile(filePath, bucketName, fileName string) (string, error
 		return "", errors.New(ErrMinIOClientNotInitialized)
 	}
 
-	ctx := context.Background()
+	ctx, cancel := m.uploadContext()
+	defer cancel()
 
 	// Determine content type based on file extension
-	contentType := "application/octet-stream"
-	ext := filepath.Ext(fileName)
-	switch ext {
-	case ".txt":
-		contentType = "text/plain"
-	case ".json":
-		contentType = "application/json"
-	case ".pdf":
-		contentType = "application/pdf"
-	default:
+	contentType := mime.TypeByExtension(filepath.Ext(fileName))
+	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 
@@ -92,7 +115,8 @@ func (m *MinIO) ObjectExists(bucket, key string) (bool, error) {
 		return false, errors.New(ErrMinIOClientNotInitialized)
 	}
 
-	ctx := context.Background()
+	ctx, cancel := m.operationContext()
+	defer cancel()
 	_, err := m.MinIOClient.StatObject(ctx, bucket, key, minio.StatObjectOptions{})
 	if err == nil {
 		return true, nil
@@ -104,14 +128,18 @@ func (m *MinIO) ObjectExists(bucket, key string) (bool, error) {
 }
 
 func (m *MinIO) SanitizeBucketName(name string) string {
-	name = strings.ToLower(name)
-	name = strings.ReplaceAll(name, "_", "-")
-	name = strings.ReplaceAll(name, " ", "-")
+	sanitized := strings.ToLower(name)
+	sanitized = strings.ReplaceAll(sanitized, "_", "-")
+	sanitized = strings.ReplaceAll(sanitized, " ", "-")
 	var result strings.Builder
-	for _, r := range name {
+	for _, r := range sanitized {
 		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
 			result.WriteRune(r)
 		}
+	}
+	if result.String() != name {
+		slog.Warn("Bucket name was sanitized - files will be stored under the sanitized name",
+			"original", name, "sanitized", result.String())
 	}
 	return result.String()
 }
@@ -120,7 +148,9 @@ func (m *MinIO) HealthCheck() error {
 	if m.MinIOClient == nil {
 		return errors.New(ErrMinIOClientNotInitialized)
 	}
-	_, err := m.MinIOClient.ListBuckets(context.Background())
+	ctx, cancel := m.operationContext()
+	defer cancel()
+	_, err := m.MinIOClient.ListBuckets(ctx)
 	return err
 }
 
@@ -128,7 +158,8 @@ func (m *MinIO) DeleteFile(bucketName, objectKey string) error {
 	if m.MinIOClient == nil {
 		return errors.New(ErrMinIOClientNotInitialized)
 	}
-	ctx := context.Background()
+	ctx, cancel := m.operationContext()
+	defer cancel()
 	err := m.MinIOClient.RemoveObject(ctx, bucketName, objectKey, minio.RemoveObjectOptions{})
 	if err != nil {
 		slog.Warn("Error deleting file", "bucket", bucketName, "key", objectKey, "err", err)

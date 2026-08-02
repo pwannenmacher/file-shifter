@@ -2,10 +2,12 @@ package services
 
 import (
 	"crypto/sha256"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -124,15 +126,32 @@ func resolveKnownHostsFile(configured string) (string, error) {
 	return "", fmt.Errorf("no known_hosts file found (checked: %s) - configure 'known-hosts' for the SFTP target or explicitly set 'insecure-skip-host-key-verification: true'", strings.Join(candidates, ", "))
 }
 
-// connectAndLoginFTP establishes an FTP connection and logs in
+// connectAndLoginFTP establishes an FTP connection and logs in.
+// With TLS enabled the connection is upgraded via explicit FTPS (AUTH TLS)
+// before credentials are sent.
 func connectAndLoginFTP(host string, ftpConfig config.FTPConfig) (*ftp.ServerConn, error) {
-	client, err := ftp.Dial(host, ftp.DialWithTimeout(30*time.Second))
+	opts := []ftp.DialOption{ftp.DialWithTimeout(30 * time.Second)}
+
+	if ftpConfig.TLS {
+		serverName := host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			serverName = h
+		}
+		opts = append(opts, ftp.DialWithExplicitTLS(&tls.Config{
+			ServerName: serverName,
+			MinVersion: tls.VersionTLS12,
+		}))
+	}
+
+	client, err := ftp.Dial(host, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("FTP connection failed: %w", err)
 	}
 
 	if err := client.Login(ftpConfig.Username, ftpConfig.Password); err != nil {
-		client.Quit()
+		if quitErr := client.Quit(); quitErr != nil {
+			slog.Debug("Error closing FTP connection after failed login", "error", quitErr)
+		}
 		return nil, fmt.Errorf("FTP login failed: %w", err)
 	}
 
