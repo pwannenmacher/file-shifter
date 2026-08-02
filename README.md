@@ -24,6 +24,19 @@ destinations. After successful transfer to all destinations, the original file i
 - Docker support: Full container support
 - Default configuration: Works without configuration with default values
 
+### Directory Deletion Behavior
+
+Deleting or renaming watched directories does not crash the service:
+
+- **Subdirectory deleted/renamed**: The watcher for that path is cleaned up; the input directory and all other
+  subdirectories continue to be monitored normally.
+- **Subdirectory recreated**: A new watcher is registered automatically; files in the recreated directory are
+  processed as before.
+- **Input directory itself deleted**: The service keeps running but can no longer process files. The directory
+  must be recreated and the service restarted to resume operation. The health endpoint does not currently
+  report a missing input directory.
+- **Edge case**: A file created at the exact moment its parent directory is deleted may not be processed.
+
 ## Quick Start
 
 ```bash
