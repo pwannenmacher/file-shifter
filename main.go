@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"github.com/joho/godotenv"
@@ -130,7 +131,7 @@ func runApp(
 
 	// Validate CLI configuration
 	if err := cliCfg.Validate(); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Fehler in Kommandozeilen-Argumenten: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Error in command line arguments: %v\n", err)
 		return 1
 	}
 
@@ -142,8 +143,8 @@ func runApp(
 
 	cfg, err := loadEnvYamlFunc()
 	if err != nil {
-		fmt.Println("Konfigurationsdatei konnte nicht geladen werden:", err)
-		cfg = &config.EnvConfig{} // leere Konfiguration
+		_, _ = fmt.Fprintln(os.Stderr, "Configuration file could not be loaded:", err)
+		cfg = &config.EnvConfig{} // empty configuration
 	}
 
 	_ = loadDotEnv()
@@ -154,7 +155,7 @@ func runApp(
 	// Load environment variables (overwrites YAML and .env)
 	err = cfg.LoadFromEnvironment()
 	if err != nil {
-		fmt.Println("Error loading environment variables:", err)
+		_, _ = fmt.Fprintln(os.Stderr, "Error loading environment variables:", err)
 	}
 
 	// Apply CLI parameters (highest priority)
@@ -166,6 +167,11 @@ func runApp(
 
 	// Logger configuration
 	setupLogger(cfg)
+
+	if cliCfg.HasInlineCredentials() {
+		slog.Warn("Credentials passed via --outputs are visible in the process list (ps)",
+			"recommendation", "prefer environment variables, .env or env.yaml for secrets")
+	}
 
 	// Input Directory
 	inputDir := cfg.Input
@@ -191,7 +197,7 @@ func runApp(
 		return 1
 	}
 
-	// Initialise and start workers
+	// Initialize and start workers
 	workerSvc, err := createWorker(inputDir, outputTargets, cfg)
 	if err != nil {
 		slog.Error("Failed to create worker", "error", err)
@@ -199,7 +205,7 @@ func runApp(
 	}
 
 	// Start Health-Monitor
-	healthMonitor := createHealthMonitor(workerSvc, "8080")
+	healthMonitor := createHealthMonitor(workerSvc, strconv.Itoa(cfg.Health.Port))
 	healthMonitor.Start()
 
 	// Graceful Shutdown Handler

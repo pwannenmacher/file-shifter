@@ -2,10 +2,12 @@ package services
 
 import (
 	"crypto/sha256"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -15,19 +17,28 @@ import (
 	"file-shifter/config"
 
 	"github.com/jlaffaye/ftp"
-	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 type FileHandler struct {
 	S3ClientManager *S3ClientManager
+	RemoteConns     *RemoteConnManager
 	OutputTargets   []config.OutputTarget
 }
 
 func NewFileHandler(targets []config.OutputTarget, s3ClientManager *S3ClientManager) *FileHandler {
 	return &FileHandler{
 		S3ClientManager: s3ClientManager,
+		RemoteConns:     NewRemoteConnManager(),
 		OutputTargets:   targets,
+	}
+}
+
+// Close shuts down all pooled remote connections
+func (fh *FileHandler) Close() {
+	if fh.RemoteConns != nil {
+		fh.RemoteConns.Close()
 	}
 }
 
@@ -60,26 +71,95 @@ func parseRemotePath(targetPath, relPath string, defaultPort string) (host, remo
 }
 
 // createSSHConfig creates an SSH configuration for SFTP
-func createSSHConfig(ftpConfig config.FTPConfig) *ssh.ClientConfig {
+func createSSHConfig(ftpConfig config.FTPConfig) (*ssh.ClientConfig, error) {
+	hostKeyCallback, err := createHostKeyCallback(ftpConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	return &ssh.ClientConfig{
 		User: ftpConfig.Username,
 		Auth: []ssh.AuthMethod{
 			ssh.Password(ftpConfig.Password),
 		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: hostKeyCallback,
 		Timeout:         30 * time.Second,
-	}
+	}, nil
 }
 
-// connectAndLoginFTP establishes an FTP connection and logs in
+// createHostKeyCallback builds the SSH host key verification callback.
+// Verification is fail-closed: without a usable known_hosts file the
+// connection is refused unless verification is explicitly disabled.
+func createHostKeyCallback(ftpConfig config.FTPConfig) (ssh.HostKeyCallback, error) {
+	if ftpConfig.InsecureSkipHostKeyVerify {
+		slog.Warn("SFTP host key verification is DISABLED - connection is vulnerable to man-in-the-middle attacks")
+		return ssh.InsecureIgnoreHostKey(), nil
+	}
+
+	knownHostsFile, err := resolveKnownHostsFile(ftpConfig.KnownHosts)
+	if err != nil {
+		return nil, err
+	}
+
+	callback, err := knownhosts.New(knownHostsFile)
+	if err != nil {
+		return nil, fmt.Errorf("error loading known_hosts file %s: %w", knownHostsFile, err)
+	}
+
+	return callback, nil
+}
+
+// resolveKnownHostsFile returns the known_hosts file to use: the configured
+// path, or the first existing standard location as fallback.
+func resolveKnownHostsFile(configured string) (string, error) {
+	if configured != "" {
+		if _, err := os.Stat(configured); err != nil {
+			return "", fmt.Errorf("configured known_hosts file is not accessible: %w", err)
+		}
+		return configured, nil
+	}
+
+	var candidates []string
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, filepath.Join(home, ".ssh", "known_hosts"))
+	}
+	candidates = append(candidates, "/etc/ssh/ssh_known_hosts")
+
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+
+	return "", fmt.Errorf("no known_hosts file found (checked: %s) - configure 'known-hosts' for the SFTP target or explicitly set 'insecure-skip-host-key-verification: true'", strings.Join(candidates, ", "))
+}
+
+// connectAndLoginFTP establishes an FTP connection and logs in.
+// With TLS enabled the connection is upgraded via explicit FTPS (AUTH TLS)
+// before credentials are sent.
 func connectAndLoginFTP(host string, ftpConfig config.FTPConfig) (*ftp.ServerConn, error) {
-	client, err := ftp.Dial(host, ftp.DialWithTimeout(30*time.Second))
+	opts := []ftp.DialOption{ftp.DialWithTimeout(30 * time.Second)}
+
+	if ftpConfig.TLS {
+		serverName := host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			serverName = h
+		}
+		opts = append(opts, ftp.DialWithExplicitTLS(&tls.Config{
+			ServerName: serverName,
+			MinVersion: tls.VersionTLS12,
+		}))
+	}
+
+	client, err := ftp.Dial(host, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("FTP connection failed: %w", err)
 	}
 
 	if err := client.Login(ftpConfig.Username, ftpConfig.Password); err != nil {
-		client.Quit()
+		if quitErr := client.Quit(); quitErr != nil {
+			slog.Debug("Error closing FTP connection after failed login", "error", quitErr)
+		}
 		return nil, fmt.Errorf("FTP login failed: %w", err)
 	}
 
@@ -231,7 +311,7 @@ func (fh *FileHandler) finalizeProcessedFile(filePath, relPath, initialChecksum 
 	}
 
 	if initialChecksum != finalChecksum {
-		slog.Warn("Prüfsummen stimmen nicht überein - Datei wurde während der Verarbeitung verändert",
+		slog.Warn("Checksums do not match - file was modified during processing",
 			"file", filePath,
 			"initial_checksum", initialChecksum,
 			"final_checksum", finalChecksum,
@@ -278,10 +358,25 @@ func (fh *FileHandler) copyToFilesystem(srcPath, relPath, targetBasePath string,
 	if err != nil {
 		return fmt.Errorf("error creating target file: %w", err)
 	}
-	defer dstFile.Close()
 
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
+	written, err := io.Copy(dstFile, srcFile)
+	if err != nil {
+		_ = dstFile.Close()
 		return fmt.Errorf("error copying the file: %w", err)
+	}
+
+	// Sync and Close can surface write errors (e.g. ENOSPC, NFS flush) after a
+	// successful io.Copy - they must be checked before the source file gets deleted.
+	if err := dstFile.Sync(); err != nil {
+		_ = dstFile.Close()
+		return fmt.Errorf("error syncing target file: %w", err)
+	}
+	if err := dstFile.Close(); err != nil {
+		return fmt.Errorf("error closing target file: %w", err)
+	}
+
+	if written != fileInfo.Size() {
+		return fmt.Errorf("incomplete copy: wrote %d of %d bytes to %s", written, fileInfo.Size(), targetPath)
 	}
 
 	// Set file permissions and timestamps
@@ -299,39 +394,39 @@ func (fh *FileHandler) copyToFilesystem(srcPath, relPath, targetBasePath string,
 
 func (fh *FileHandler) copyToS3(srcPath, relPath string, target config.OutputTarget) error {
 	if fh.S3ClientManager == nil {
-		return fmt.Errorf("s3ClientManager not initialised")
+		return fmt.Errorf("s3ClientManager not initialized")
 	}
 
-	// S3-Konfiguration aus dem Target extrahieren
+	// Extract S3 configuration from the target
 	s3Config := target.GetS3Config()
 
-	// Den entsprechenden MinIO-Client für diese Konfiguration holen
+	// Get the matching MinIO client for this configuration
 	minioClient, err := fh.S3ClientManager.GetOrCreateClient(s3Config)
 	if err != nil {
-		return fmt.Errorf("fehler beim Abrufen des S3-Clients: %w", err)
+		return fmt.Errorf("error getting S3 client: %w", err)
 	}
 
-	// S3-Pfad parsen
+	// Parse S3 path
 	s3Path, err := parseS3Path(target.Path, relPath)
 	if err != nil {
-		return fmt.Errorf("fehler beim Parsen des S3-Pfads: %w", err)
+		return fmt.Errorf("error parsing S3 path: %w", err)
 	}
 
-	// Bucket-Name sanitarisieren
+	// Sanitize bucket name
 	bucketName := minioClient.SanitizeBucketName(s3Path.bucketName)
 
-	// Bucket sicherstellen
+	// Ensure bucket exists
 	if err := minioClient.EnsureBucket(bucketName); err != nil {
-		return fmt.Errorf("fehler beim Sicherstellen des Buckets: %w", err)
+		return fmt.Errorf("error ensuring bucket: %w", err)
 	}
 
-	// Datei hochladen
+	// Upload file
 	if _, err := minioClient.UploadFile(srcPath, bucketName, s3Path.objectKey); err != nil {
-		return fmt.Errorf("fehler beim S3-Upload: %w", err)
+		return fmt.Errorf("error during S3 upload: %w", err)
 	}
 
-	slog.Info("Datei erfolgreich zu S3 hochgeladen",
-		"quelle", relPath,
+	slog.Info("File successfully uploaded to S3",
+		"source", relPath,
 		"bucket", bucketName,
 		"key", s3Path.objectKey,
 		"endpoint", s3Config.Endpoint)
@@ -341,7 +436,7 @@ func (fh *FileHandler) copyToS3(srcPath, relPath string, target config.OutputTar
 func (fh *FileHandler) copyToFTP(srcPath, relPath string, target config.OutputTarget) error {
 	host, remotePath, err := parseRemotePath(target.Path, relPath, "21")
 	if err != nil {
-		return fmt.Errorf("fehler beim Parsen des FTP-Pfads: %w", err)
+		return fmt.Errorf("error parsing FTP path: %w", err)
 	}
 
 	return fh.copyToFTPRegular(srcPath, remotePath, host, target)
@@ -350,72 +445,99 @@ func (fh *FileHandler) copyToFTP(srcPath, relPath string, target config.OutputTa
 func (fh *FileHandler) copyToSFTP(srcPath, relPath string, target config.OutputTarget) error {
 	host, remotePath, err := parseRemotePath(target.Path, relPath, "22")
 	if err != nil {
-		return fmt.Errorf("fehler beim Parsen des SFTP-Pfads: %w", err)
+		return fmt.Errorf("error parsing SFTP path: %w", err)
 	}
 
 	return fh.copyToSFTPClient(srcPath, remotePath, host, target)
 }
 
-func (fh *FileHandler) copyToSFTPClient(srcPath, remotePath, host string, target config.OutputTarget) error {
-	// SSH-Verbindung aufbauen
+func (fh *FileHandler) copyToSFTPClient(srcPath, remotePath, host string, target config.OutputTarget) (err error) {
+	// Get the pooled SFTP client (connection is reused)
 	ftpConfig := target.GetFTPConfig()
-	sshConfig := createSSHConfig(ftpConfig)
-
-	conn, err := ssh.Dial("tcp", host, sshConfig)
-	if err != nil {
-		return fmt.Errorf("SSH-Verbindung fehlgeschlagen: %w", err)
-	}
-	defer conn.Close()
-
-	// SFTP-Client erstellen
-	client, err := sftp.NewClient(conn)
-	if err != nil {
-		return fmt.Errorf("SFTP-Client-Erstellung fehlgeschlagen: %w", err)
-	}
-	defer client.Close()
-
-	// Remote-Verzeichnis erstellen
-	remoteDir := filepath.Dir(remotePath)
-	if err := client.MkdirAll(remoteDir); err != nil {
-		slog.Warn("Konnte Remote-Verzeichnis nicht erstellen", "verzeichnis", remoteDir, "error", err)
-	}
-
-	// Quelldatei öffnen
-	srcFile, err := os.Open(srcPath)
-	if err != nil {
-		return fmt.Errorf("fehler beim Öffnen der Quelldatei: %w", err)
-	}
-	defer srcFile.Close()
-
-	// Remote-Datei erstellen
-	dstFile, err := client.Create(remotePath)
-	if err != nil {
-		return fmt.Errorf("fehler beim Erstellen der Remote-Datei: %w", err)
-	}
-	defer dstFile.Close()
-
-	// Datei übertragen
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return fmt.Errorf("fehler beim SFTP-Upload: %w", err)
-	}
-
-	slog.Info("Datei erfolgreich über SFTP hochgeladen", "quelle", srcPath, "target", remotePath)
-	return nil
-}
-
-func (fh *FileHandler) copyToFTPRegular(srcPath, remotePath, host string, target config.OutputTarget) error {
-	// FTP-Verbindung aufbauen und anmelden
-	ftpConfig := target.GetFTPConfig()
-	client, err := connectAndLoginFTP(host, ftpConfig)
+	client, err := fh.RemoteConns.GetSFTPClient(host, ftpConfig)
 	if err != nil {
 		return err
 	}
-	defer client.Quit()
+	// Drop the cached connection on errors so the next attempt reconnects
+	// fresh
+	defer func() {
+		if err != nil {
+			fh.RemoteConns.InvalidateSFTPClient(host, ftpConfig)
+		}
+	}()
 
-	// Remote-Verzeichnis erstellen (falls nötig)
+	// Create remote directory
+	remoteDir := filepath.Dir(remotePath)
+	if err := client.MkdirAll(remoteDir); err != nil {
+		slog.Warn("Could not create remote directory", "directory", remoteDir, "error", err)
+	}
+
+	// Open source file
+	srcFile, err := os.Open(srcPath)
+	if err != nil {
+		return fmt.Errorf("error opening source file: %w", err)
+	}
+	defer srcFile.Close()
+
+	// Capture the expected size up front so the integrity check below catches
+	// a source that shrinks mid-transfer (io.Copy ends without error on EOF).
+	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		return fmt.Errorf("error reading source file size: %w", err)
+	}
+	expected := srcInfo.Size()
+
+	// Create remote file
+	dstFile, err := client.Create(remotePath)
+	if err != nil {
+		return fmt.Errorf("error creating remote file: %w", err)
+	}
+
+	// Transfer file
+	written, err := io.Copy(dstFile, srcFile)
+	if err != nil {
+		_ = dstFile.Close()
+		return fmt.Errorf("error during SFTP upload: %w", err)
+	}
+
+	// SFTP flushes buffered writes only on Close - an error here means an
+	// incomplete remote file.
+	if err := dstFile.Close(); err != nil {
+		return fmt.Errorf("error finalizing remote file: %w", err)
+	}
+
+	if written != expected {
+		return fmt.Errorf("incomplete SFTP upload: wrote %d of %d bytes (%s)", written, expected, remotePath)
+	}
+
+	// Verify the remote size against the source size before the source file is deleted
+	remoteInfo, err := client.Stat(remotePath)
+	if err != nil {
+		return fmt.Errorf("error verifying remote file: %w", err)
+	}
+	if remoteInfo.Size() != expected {
+		return fmt.Errorf("incomplete SFTP upload: remote %d bytes, expected %d (%s)", remoteInfo.Size(), expected, remotePath)
+	}
+
+	slog.Info("File successfully uploaded via SFTP", "source", srcPath, "target", remotePath)
+	return nil
+}
+
+func (fh *FileHandler) copyToFTPRegular(srcPath, remotePath, host string, target config.OutputTarget) (err error) {
+	// Get a pooled FTP connection (reused after success)
+	ftpConfig := target.GetFTPConfig()
+	client, err := fh.RemoteConns.GetFTPConn(host, ftpConfig)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		fh.RemoteConns.ReleaseFTPConn(host, ftpConfig, client, err == nil)
+	}()
+
+	// Create remote directory (if necessary)
 	remoteDir := filepath.Dir(remotePath)
 	if remoteDir != "." && remoteDir != "/" {
-		// Verzeichnisse schrittweise erstellen
+		// Create directories step by step
 		dirs := strings.Split(remoteDir, "/")
 		currentPath := ""
 		for _, dir := range dirs {
@@ -423,138 +545,141 @@ func (fh *FileHandler) copyToFTPRegular(srcPath, remotePath, host string, target
 				continue
 			}
 			currentPath = filepath.Join(currentPath, dir)
-			// Unix-Style Pfad für FTP
+			// Unix-style path for FTP
 			currentPath = normalizeRemotePath(currentPath)
 			if err := client.MakeDir(currentPath); err != nil {
-				// Fehler ignorieren falls Verzeichnis bereits existiert
-				slog.Debug("Verzeichnis existiert möglicherweise bereits", "verzeichnis", currentPath)
+				// Ignore error if the directory already exists
+				slog.Debug("Directory may already exist", "directory", currentPath)
 			}
 		}
 	}
 
-	// Quelldatei öffnen
+	// Open source file
 	srcFile, err := os.Open(srcPath)
 	if err != nil {
-		return fmt.Errorf("fehler beim Öffnen der Quelldatei: %w", err)
+		return fmt.Errorf("error opening source file: %w", err)
 	}
 	defer srcFile.Close()
 
-	// Unix-Style Pfad für FTP verwenden
+	// Use Unix-style path for FTP
 	remotePath = normalizeRemotePath(remotePath)
 
-	// Datei übertragen
+	// Transfer file
 	if err := client.Stor(remotePath, srcFile); err != nil {
-		return fmt.Errorf("fehler beim FTP-Upload: %w", err)
+		return fmt.Errorf("error during FTP upload: %w", err)
 	}
 
-	slog.Info("Datei erfolgreich über FTP hochgeladen", "quelle", srcPath, "target", remotePath, "host", host)
+	slog.Info("File successfully uploaded via FTP", "source", srcPath, "target", remotePath, "host", host)
 	return nil
 }
 
-// cleanupTargetFiles löscht bereits übertragene Dateien in allen konfigurierten Zielen
+// cleanupTargetFiles deletes already transferred files from all configured targets
 func (fh *FileHandler) cleanupTargetFiles(relPath string) error {
-	slog.Info("Lösche bereits übertragene Dateien", "file", relPath)
+	slog.Info("Deleting already transferred files", "file", relPath)
 	var cleanupErrors []error
 
 	for _, target := range fh.OutputTargets {
 		switch target.Type {
 		case "filesystem":
 			if err := fh.deleteFromFilesystem(relPath, target.Path); err != nil {
-				cleanupErrors = append(cleanupErrors, fmt.Errorf("filesystem-löschung fehlgeschlagen: %w", err))
-				slog.Error("Filesystem-Löschung fehlgeschlagen", "target", target.Path, "error", err)
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("filesystem deletion failed: %w", err))
+				slog.Error("Filesystem deletion failed", "target", target.Path, "error", err)
 			}
 		case "s3":
 			if err := fh.deleteFromS3(relPath, target); err != nil {
-				cleanupErrors = append(cleanupErrors, fmt.Errorf("s3-löschung fehlgeschlagen: %w", err))
-				slog.Error("S3-Löschung fehlgeschlagen", "target", target.Path, "error", err)
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("s3 deletion failed: %w", err))
+				slog.Error("S3 deletion failed", "target", target.Path, "error", err)
 			}
 		case "ftp":
 			if err := fh.deleteFromFTP(relPath, target); err != nil {
-				cleanupErrors = append(cleanupErrors, fmt.Errorf("ftp-löschung fehlgeschlagen: %w", err))
-				slog.Error("FTP-Löschung fehlgeschlagen", "target", target.Path, "error", err)
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("ftp deletion failed: %w", err))
+				slog.Error("FTP deletion failed", "target", target.Path, "error", err)
 			}
 		case "sftp":
 			if err := fh.deleteFromSFTP(relPath, target); err != nil {
-				cleanupErrors = append(cleanupErrors, fmt.Errorf("sftp-löschung fehlgeschlagen: %w", err))
-				slog.Error("SFTP-Löschung fehlgeschlagen", "target", target.Path, "error", err)
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("sftp deletion failed: %w", err))
+				slog.Error("SFTP deletion failed", "target", target.Path, "error", err)
 			}
 		}
 	}
 
 	if len(cleanupErrors) > 0 {
-		return fmt.Errorf("cleanup-fehler: %v", cleanupErrors)
+		return fmt.Errorf("cleanup errors: %v", cleanupErrors)
 	}
 
-	slog.Info("Alle Zieldateien erfolgreich gelöscht", "file", relPath)
+	slog.Info("All target files deleted successfully", "file", relPath)
 	return nil
 }
 
-// deleteFromFilesystem löscht eine Datei vom Filesystem
+// deleteFromFilesystem deletes a file from the filesystem
 func (fh *FileHandler) deleteFromFilesystem(relPath, targetBasePath string) error {
 	targetPath := filepath.Join(targetBasePath, relPath)
 
 	if err := os.Remove(targetPath); err != nil {
 		if os.IsNotExist(err) {
-			slog.Debug("Datei existiert nicht im Filesystem-Ziel", "path", targetPath)
-			return nil // Datei existiert nicht - kein Fehler
+			slog.Debug("File does not exist in filesystem target", "path", targetPath)
+			return nil // file does not exist - not an error
 		}
-		return fmt.Errorf("fehler beim Löschen der Filesystem-Datei: %w", err)
+		return fmt.Errorf("error deleting filesystem file: %w", err)
 	}
 
-	slog.Debug("Datei erfolgreich vom Filesystem gelöscht", "path", targetPath)
+	slog.Debug("File successfully deleted from filesystem", "path", targetPath)
 	return nil
 }
 
-// deleteFromS3 löscht eine Datei von S3
+// deleteFromS3 deletes a file from S3
 func (fh *FileHandler) deleteFromS3(relPath string, target config.OutputTarget) error {
 	if fh.S3ClientManager == nil {
-		return fmt.Errorf("s3ClientManager nicht initialisiert")
+		return fmt.Errorf("s3ClientManager not initialized")
 	}
 
-	// S3-Konfiguration aus dem Target extrahieren
+	// Extract S3 configuration from the target
 	s3Config := target.GetS3Config()
 
-	// Den entsprechenden MinIO-Client für diese Konfiguration holen
+	// Get the matching MinIO client for this configuration
 	minioClient, err := fh.S3ClientManager.GetOrCreateClient(s3Config)
 	if err != nil {
-		return fmt.Errorf("fehler beim Abrufen des S3-Clients: %w", err)
+		return fmt.Errorf("error getting S3 client: %w", err)
 	}
 
-	// S3-Pfad parsen
+	// Parse S3 path
 	s3Path, err := parseS3Path(target.Path, relPath)
 	if err != nil {
-		return fmt.Errorf("fehler beim Parsen des S3-Pfads: %w", err)
+		return fmt.Errorf("error parsing S3 path: %w", err)
 	}
 
-	// Bucket-Name sanitarisieren
+	// Sanitize bucket name
 	bucketName := minioClient.SanitizeBucketName(s3Path.bucketName)
 
-	// Datei löschen
+	// Delete file
 	if err := minioClient.DeleteFile(bucketName, s3Path.objectKey); err != nil {
-		return fmt.Errorf("fehler beim S3-Löschen: %w", err)
+		return fmt.Errorf("error during S3 deletion: %w", err)
 	}
 
-	slog.Debug("Datei erfolgreich von S3 gelöscht",
+	slog.Debug("File successfully deleted from S3",
 		"bucket", bucketName,
 		"key", s3Path.objectKey,
 		"endpoint", s3Config.Endpoint)
 	return nil
 }
 
-// deleteFromFTP löscht eine Datei vom FTP-Server
+// deleteFromFTP deletes a file from the FTP server
 func (fh *FileHandler) deleteFromFTP(relPath string, target config.OutputTarget) error {
 	host, remotePath, err := parseRemotePath(target.Path, relPath, "21")
 	if err != nil {
-		return fmt.Errorf("fehler beim Parsen des FTP-Pfads: %w", err)
+		return fmt.Errorf("error parsing FTP path: %w", err)
 	}
 
-	// Establish FTP connection and log in
+	// Get a pooled FTP connection
 	ftpConfig := target.GetFTPConfig()
-	client, err := connectAndLoginFTP(host, ftpConfig)
+	client, err := fh.RemoteConns.GetFTPConn(host, ftpConfig)
 	if err != nil {
 		return err
 	}
-	defer client.Quit()
+	healthy := true
+	defer func() {
+		fh.RemoteConns.ReleaseFTPConn(host, ftpConfig, client, healthy)
+	}()
 
 	// Use Unix-style path for FTP
 	remotePath = normalizeRemotePath(remotePath)
@@ -565,6 +690,7 @@ func (fh *FileHandler) deleteFromFTP(relPath string, target config.OutputTarget)
 			slog.Debug("File does not exist in FTP destination", "path", remotePath)
 			return nil // File does not exist - no error
 		}
+		healthy = false
 		return fmt.Errorf("error during FTP deletion: %w", err)
 	}
 
@@ -576,31 +702,23 @@ func (fh *FileHandler) deleteFromFTP(relPath string, target config.OutputTarget)
 func (fh *FileHandler) deleteFromSFTP(relPath string, target config.OutputTarget) error {
 	host, remotePath, err := parseRemotePath(target.Path, relPath, "22")
 	if err != nil {
-		return fmt.Errorf("fehler beim Parsen des SFTP-Pfads: %w", err)
+		return fmt.Errorf("error parsing SFTP path: %w", err)
 	}
 
 	ftpConfig := target.GetFTPConfig()
-	sshConfig := createSSHConfig(ftpConfig)
-
-	conn, err := ssh.Dial("tcp", host, sshConfig)
+	client, err := fh.RemoteConns.GetSFTPClient(host, ftpConfig)
 	if err != nil {
-		return fmt.Errorf("SSH connection failed: %w", err)
+		return err
 	}
-	defer conn.Close()
 
-	client, err := sftp.NewClient(conn)
-	if err != nil {
-		return fmt.Errorf("SFTP client creation failed: %w", err)
-	}
-	defer client.Close()
-
-	// Datei löschen
+	// Delete file
 	if err := client.Remove(remotePath); err != nil {
 		if os.IsNotExist(err) {
 			slog.Debug("File does not exist in SFTP destination", "path", remotePath)
-			return nil // Datei existiert nicht - kein Fehler
+			return nil // file does not exist - not an error
 		}
-		return fmt.Errorf("fehler beim SFTP-Löschen: %w", err)
+		fh.RemoteConns.InvalidateSFTPClient(host, ftpConfig)
+		return fmt.Errorf("error during SFTP deletion: %w", err)
 	}
 
 	slog.Debug("File successfully deleted from the SFTP server", "path", remotePath)

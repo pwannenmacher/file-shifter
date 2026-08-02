@@ -150,6 +150,39 @@ func TestEnvConfig_Validate(t *testing.T) {
 			},
 			wantError: true,
 		},
+		{
+			name: "valid health port",
+			config: EnvConfig{
+				Input:  testSomeInput,
+				Output: []OutputTarget{{Path: testSomeOutput, Type: "file"}},
+				Health: struct {
+					Port int `yaml:"port"`
+				}{Port: 9090},
+			},
+			wantError: false,
+		},
+		{
+			name: "negative health port",
+			config: EnvConfig{
+				Input:  testSomeInput,
+				Output: []OutputTarget{{Path: testSomeOutput, Type: "file"}},
+				Health: struct {
+					Port int `yaml:"port"`
+				}{Port: -1},
+			},
+			wantError: true,
+		},
+		{
+			name: "health port above 65535",
+			config: EnvConfig{
+				Input:  testSomeInput,
+				Output: []OutputTarget{{Path: testSomeOutput, Type: "file"}},
+				Health: struct {
+					Port int `yaml:"port"`
+				}{Port: 70000},
+			},
+			wantError: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -439,10 +472,6 @@ func TestEnvConfig_LoadOutputTargetsEdgeCases(t *testing.T) {
 }
 
 // Helper functions
-
-func boolPtr(b bool) *bool {
-	return &b
-}
 
 func compareOutputTargetByPath(t *testing.T, actual, expected OutputTarget, path string) {
 	if actual.Path != expected.Path {

@@ -1,17 +1,20 @@
 package services
 
 import (
-	"crypto/md5"
+	"crypto/sha256"
 	"file-shifter/config"
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 )
 
 // S3ClientManager manages multiple MinIO clients for different S3 configurations
 type S3ClientManager struct {
-	clients map[string]*MinIO
-	mutex   sync.RWMutex
+	clients          map[string]*MinIO
+	mutex            sync.RWMutex
+	operationTimeout time.Duration
+	uploadTimeout    time.Duration
 }
 
 // NewS3ClientManager creates a new S3ClientManager
@@ -19,6 +22,14 @@ func NewS3ClientManager() *S3ClientManager {
 	return &S3ClientManager{
 		clients: make(map[string]*MinIO),
 	}
+}
+
+// SetTimeouts configures the timeouts applied to newly created MinIO clients
+func (scm *S3ClientManager) SetTimeouts(operationTimeout, uploadTimeout time.Duration) {
+	scm.mutex.Lock()
+	defer scm.mutex.Unlock()
+	scm.operationTimeout = operationTimeout
+	scm.uploadTimeout = uploadTimeout
 }
 
 // getClientKey creates a unique key for an S3 configuration
@@ -30,7 +41,7 @@ func (scm *S3ClientManager) getClientKey(s3Config config.S3Config) string {
 		s3Config.SecretKey,
 		s3Config.SSL,
 		s3Config.Region)
-	return fmt.Sprintf("%x", md5.Sum([]byte(data)))
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(data)))
 }
 
 // GetOrCreateClient returns a MinIO client for the given S3 configuration
@@ -64,9 +75,17 @@ func (scm *S3ClientManager) GetOrCreateClient(s3Config config.S3Config) (*MinIO,
 		return nil, fmt.Errorf("error creating MinIO client: %w", err)
 	}
 
+	// Apply configured timeouts (keep client defaults when unset)
+	if scm.operationTimeout > 0 {
+		minioClient.OperationTimeout = scm.operationTimeout
+	}
+	if scm.uploadTimeout > 0 {
+		minioClient.UploadTimeout = scm.uploadTimeout
+	}
+
 	// Perform health check
 	if err := minioClient.HealthCheck(); err != nil {
-		return nil, fmt.Errorf("minIO-HealthCheck fehlgeschlagen: %w", err)
+		return nil, fmt.Errorf("minio health check failed: %w", err)
 	}
 
 	// Save client in cache
@@ -91,7 +110,7 @@ func (scm *S3ClientManager) Close() {
 		}
 	}
 
-	slog.Info("Alle MinIO-Clients geschlossen")
+	slog.Info("All MinIO clients closed")
 }
 
 // GetActiveClientCount returns the number of active clients
