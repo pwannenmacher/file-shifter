@@ -479,6 +479,14 @@ func (fh *FileHandler) copyToSFTPClient(srcPath, remotePath, host string, target
 	}
 	defer srcFile.Close()
 
+	// Capture the expected size up front so the integrity check below catches
+	// a source that shrinks mid-transfer (io.Copy ends without error on EOF).
+	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		return fmt.Errorf("error reading source file size: %w", err)
+	}
+	expected := srcInfo.Size()
+
 	// Create remote file
 	dstFile, err := client.Create(remotePath)
 	if err != nil {
@@ -498,13 +506,17 @@ func (fh *FileHandler) copyToSFTPClient(srcPath, remotePath, host string, target
 		return fmt.Errorf("error finalizing remote file: %w", err)
 	}
 
-	// Verify the remote size against the transferred bytes before the source file is deleted
+	if written != expected {
+		return fmt.Errorf("incomplete SFTP upload: wrote %d of %d bytes (%s)", written, expected, remotePath)
+	}
+
+	// Verify the remote size against the source size before the source file is deleted
 	remoteInfo, err := client.Stat(remotePath)
 	if err != nil {
 		return fmt.Errorf("error verifying remote file: %w", err)
 	}
-	if remoteInfo.Size() != written {
-		return fmt.Errorf("incomplete SFTP upload: remote %d bytes, expected %d (%s)", remoteInfo.Size(), written, remotePath)
+	if remoteInfo.Size() != expected {
+		return fmt.Errorf("incomplete SFTP upload: remote %d bytes, expected %d (%s)", remoteInfo.Size(), expected, remotePath)
 	}
 
 	slog.Info("File successfully uploaded via SFTP", "source", srcPath, "target", remotePath)

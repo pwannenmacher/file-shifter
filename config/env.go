@@ -340,7 +340,7 @@ func (c *EnvConfig) Validate() error {
 
 	// 0 means "not set" - SetDefaults fills in the default port.
 	if c.Health.Port < 0 || c.Health.Port > 65535 {
-		return fmt.Errorf("invalid health port: %d (allowed: 1-65535)", c.Health.Port)
+		return fmt.Errorf("invalid health port: %d (allowed: 1-65535, or 0 for the default)", c.Health.Port)
 	}
 
 	return nil
