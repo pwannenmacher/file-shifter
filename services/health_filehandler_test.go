@@ -32,29 +32,24 @@ func (w *failingResponseWriter) Write(_ []byte) (int, error) {
 	return 0, io.ErrClosedPipe
 }
 
-func TestHealthMonitor_PerformHealthCheckBranches(t *testing.T) {
-	t.Run("nil file watcher sets unhealthy", func(t *testing.T) {
+func TestHealthMonitor_HealthStatusBranches(t *testing.T) {
+	t.Run("nil file watcher reports unhealthy", func(t *testing.T) {
 		hm := NewHealthMonitor(&Worker{}, "0")
-		hm.performHealthCheck()
 
-		if hm.isHealthy {
-			t.Fatal("expected unhealthy status when FileWatcher is nil")
-		}
-		if hm.lastCheck.IsZero() {
-			t.Fatal("expected lastCheck to be set")
+		if status := hm.HealthStatus(); status.Status != HealthStatusUnhealthy {
+			t.Fatalf("expected unhealthy status when FileWatcher is nil, got %s", status.Status)
 		}
 	})
 
-	t.Run("over 90 percent queue sets unhealthy", func(t *testing.T) {
+	t.Run("over 90 percent queue reports unhealthy", func(t *testing.T) {
 		fw := &FileWatcher{fileQueue: make(chan string, 10), queueCapacity: 10, workerCount: 2}
 		for i := 0; i < 10; i++ {
 			fw.fileQueue <- "f"
 		}
 
 		hm := NewHealthMonitor(&Worker{FileWatcher: fw}, "0")
-		hm.performHealthCheck()
-		if hm.isHealthy {
-			t.Fatal("expected unhealthy status when queue fill is above 90%")
+		if status := hm.HealthStatus(); status.Status != HealthStatusUnhealthy {
+			t.Fatalf("expected unhealthy status when queue fill is above 90%%, got %s", status.Status)
 		}
 	})
 }

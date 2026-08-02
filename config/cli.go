@@ -13,6 +13,7 @@ type CLIConfig struct {
 	LogLevel    string
 	Input       string
 	OutputsJSON string
+	HealthPort  int
 	ShowHelp    bool
 }
 
@@ -24,6 +25,7 @@ func ParseCLI() *CLIConfig {
 	flag.StringVar(&cfg.LogLevel, "log-level", "", "Set log level (DEBUG, INFO, WARN, ERROR)")
 	flag.StringVar(&cfg.Input, "input", "", "Set input directory")
 	flag.StringVar(&cfg.OutputsJSON, "outputs", "", "Set output targets as JSON array")
+	flag.IntVar(&cfg.HealthPort, "health-port", 0, "Set port for the health check HTTP server")
 	flag.BoolVar(&cfg.ShowHelp, "help", false, "Show help message")
 
 	// Also handle short forms and alternative help flags
@@ -68,6 +70,11 @@ func (cli *CLIConfig) ApplyToCfg(cfg *EnvConfig) error {
 		cfg.Output = targets
 	}
 
+	// Apply health port
+	if cli.HealthPort != 0 {
+		cfg.Health.Port = cli.HealthPort
+	}
+
 	return nil
 }
 
@@ -100,7 +107,10 @@ OPTIONS:
                         SFTP example:
                         [{"path":"sftp://server/path","type":"sftp",
                           "host":"server.com","username":"user","password":"pass"}]
-    
+
+    --health-port PORT   Set port for the health check HTTP server
+                        Default: 8080
+
     -h, --help           Show this help message
 
 EXAMPLES:
@@ -121,7 +131,8 @@ CONFIGURATION PRIORITY:
 
 ENVIRONMENT VARIABLES:
     LOG_LEVEL            Same as --log-level
-    INPUT                Same as --input  
+    INPUT                Same as --input
+    HEALTH_PORT          Same as --health-port
     OUTPUT_1_PATH        First output target path
     OUTPUT_1_TYPE        First output target type
     ...                  Additional OUTPUT_X_* variables
@@ -151,6 +162,22 @@ func (cli *CLIConfig) Validate() error {
 
 	if err := validateOutputsJSON(cli.OutputsJSON); err != nil {
 		return err
+	}
+
+	if err := validateHealthPort(cli.HealthPort); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateHealthPort(port int) error {
+	if port == 0 {
+		return nil
+	}
+
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("invalid health port: %d (allowed: 1-65535)", port)
 	}
 
 	return nil

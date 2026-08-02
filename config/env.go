@@ -25,6 +25,9 @@ type EnvConfig struct {
 		Workers   int `yaml:"workers"`    // Number of parallel workers
 		QueueSize int `yaml:"queue-size"` // Size of the file queue
 	} `yaml:"worker-pool"`
+	Health struct {
+		Port int `yaml:"port"` // Port for the health check HTTP server
+	} `yaml:"health"`
 }
 
 // LoadFromEnvironment loads the configuration from environment variables
@@ -42,6 +45,9 @@ func (c *EnvConfig) LoadFromEnvironment() error {
 
 	// Worker Pool Configuration - support different formats
 	c.loadWorkerPoolFromEnv()
+
+	// Health server configuration
+	c.Health.Port = readPositiveIntEnv(c.Health.Port, "HEALTH_PORT", "health.port")
 
 	// Output Targets - flat structure
 	c.loadOutputTargetsFromEnv()
@@ -125,6 +131,12 @@ func (c *EnvConfig) loadTargetProperties(target *OutputTarget, index string) {
 	}
 	if value := os.Getenv(prefix + "PASSWORD"); value != "" {
 		target.Password = value
+	}
+	if value := os.Getenv(prefix + "KNOWN_HOSTS"); value != "" {
+		target.KnownHosts = value
+	}
+	if value := os.Getenv(prefix + "INSECURE_SKIP_HOST_KEY_VERIFICATION"); value != "" {
+		target.InsecureSkipHostKeyVerify = strings.ToLower(value) == "true"
 	}
 }
 
@@ -242,6 +254,10 @@ func readYAMLOutputTarget(index int) (OutputTarget, bool) {
 	target.Host = os.Getenv(fmt.Sprintf("output.%d.host", index))
 	target.Username = os.Getenv(fmt.Sprintf("output.%d.username", index))
 	target.Password = os.Getenv(fmt.Sprintf("output.%d.password", index))
+	target.KnownHosts = os.Getenv(fmt.Sprintf("output.%d.known_hosts", index))
+	if v := os.Getenv(fmt.Sprintf("output.%d.insecure_skip_host_key_verification", index)); v != "" {
+		target.InsecureSkipHostKeyVerify = strings.ToLower(v) == "true"
+	}
 
 	if sslStr := os.Getenv(fmt.Sprintf("output.%d.ssl", index)); sslStr != "" {
 		target.SSL = toBoolPtr(strings.ToLower(sslStr) == "true")
@@ -284,6 +300,10 @@ func (c *EnvConfig) SetDefaults() {
 	if c.WorkerPool.QueueSize == 0 {
 		c.WorkerPool.QueueSize = 100 // 100 Dateien in der Warteschlange
 	}
+	// Health Defaults
+	if c.Health.Port == 0 {
+		c.Health.Port = 8080
+	}
 }
 
 // Validate checks the configuration for completeness.
@@ -295,6 +315,11 @@ func (c *EnvConfig) Validate() error {
 	// Check that at least one target is configured.
 	if len(c.Output) == 0 {
 		return os.ErrInvalid
+	}
+
+	// 0 means "not set" - SetDefaults fills in the default port.
+	if c.Health.Port < 0 || c.Health.Port > 65535 {
+		return fmt.Errorf("invalid health port: %d (allowed: 1-65535)", c.Health.Port)
 	}
 
 	return nil

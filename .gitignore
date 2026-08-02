@@ -44,3 +44,5 @@ output/
 output1/
 output2/
 output-*/
+# Lokale Audit-Notizen (nicht einchecken)
+TODO_AUDIT.md
