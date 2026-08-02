@@ -1,25 +1,14 @@
-# TODO - Remaining Hardening Tasks
-
-## Open Security/Robustness Items
-
-- [x] Enforce SFTP host key verification (no `ssh.InsecureIgnoreHostKey()` in production path).
-  - Add known_hosts based validation and config flags for strict mode.
-  - Fail closed by default if host key is unknown.
-
-- [x] Limit event fan-out to avoid unbounded goroutine growth under fsnotify storms.
-  - Replace per-event goroutine spawning with a bounded event worker pipeline.
-  - Lossless backlog with saturation metrics (warning log, degraded health); no events are dropped.
-
-- [x] Harden health server HTTP timeouts.
-  - Set `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, and `IdleTimeout` on `http.Server`.
-
-- [x] Use operation-scoped context timeouts for S3/MinIO calls.
-  - Replace `context.Background()` with `context.WithTimeout(...)` in bucket checks, uploads, stats, and deletes.
-  - Make timeout configurable via config.
+# TODO
 
 ## Test Gaps
 
 - [ ] Add tests for shutdown race resilience (`Stop()` while events are being produced).
 - [ ] Add tests for bounded retry behavior on repeated checksum mismatch.
 - [ ] Add tests for health endpoint timeout configuration.
-- [ ] Add tests for S3 context timeout behavior.
+- [ ] Add tests for S3 context timeout behavior (`operationContext`/`uploadContext` incl. default fallback).
+
+## Nice to Have
+
+- [ ] End-to-end test for FTPS (`tls: true` on FTP targets) against a real FTPS server — currently only unit-tested.
+- [ ] Translate remaining German comments/messages in test files (production code is English-only).
+- [ ] Stabilize `TestFileWatcher_DirectoryDeletion` (fixed sleeps make it flaky under load).
