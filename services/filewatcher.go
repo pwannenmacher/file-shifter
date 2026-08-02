@@ -55,6 +55,11 @@ type FileWatcher struct {
 	backlogWarnActive    bool
 	eventWorkerCount     int
 	eventWorkersWG       sync.WaitGroup
+	// Automatic retry for files whose transfer failed (e.g. one target
+	// temporarily unreachable): re-submitted with exponential backoff until
+	// they succeed or disappear from the input directory.
+	retryMu     sync.Mutex
+	retryCounts map[string]int
 }
 
 func NewFileWatcher(inputDir string, fileHandler *FileHandler, maxRetries int, checkInterval, stabilityPeriod time.Duration, workerCount, queueSize int) (*FileWatcher, error) {
@@ -87,6 +92,7 @@ func NewFileWatcher(inputDir string, fileHandler *FileHandler, maxRetries int, c
 		processingFiles:      make(map[string]struct{}),
 		backlogWarnThreshold: backlogWarnThreshold,
 		eventWorkerCount:     eventWorkerCount,
+		retryCounts:          make(map[string]int),
 	}
 	fw.pendingCond = sync.NewCond(&fw.pendingMu)
 
@@ -490,14 +496,75 @@ func (fw *FileWatcher) worker() {
 	defer fw.workers.Done()
 
 	for filePath := range fw.fileQueue {
-		if err := fw.fileHandler.ProcessFile(filePath, fw.inputDir); err != nil {
-			slog.Error("Error processing file", "file", filePath, "error", err)
-		}
+		err := fw.fileHandler.ProcessFile(filePath, fw.inputDir)
 		fw.unmarkFileForProcessing(filePath)
+
+		if err != nil {
+			slog.Error("Error processing file", "file", filePath, "error", err)
+			fw.scheduleRetry(filePath)
+		} else {
+			fw.clearRetryState(filePath)
+		}
 
 		// Queue monitoring after processing a file
 		fw.checkQueueCapacity()
 	}
+}
+
+// scheduleRetry re-submits a failed file after an exponential backoff so
+// transient target failures do not leave files stuck in the input directory
+// until the next event or restart.
+func (fw *FileWatcher) scheduleRetry(filePath string) {
+	if fw.stopping.Load() {
+		return
+	}
+
+	// The file may have been removed externally in the meantime
+	if _, err := os.Lstat(filePath); err != nil {
+		fw.clearRetryState(filePath)
+		return
+	}
+
+	fw.retryMu.Lock()
+	fw.retryCounts[filePath]++
+	attempt := fw.retryCounts[filePath]
+	fw.retryMu.Unlock()
+
+	delay := retryBackoff(attempt)
+	slog.Warn("Transfer failed - scheduling retry", "file", filePath, "attempt", attempt, "delay", delay)
+
+	if !fw.registerProducer() {
+		return
+	}
+	go func() {
+		defer fw.producersWG.Done()
+		select {
+		case <-fw.stopChan:
+		case <-time.After(delay):
+			fw.submitFile(filePath)
+		}
+	}()
+}
+
+func (fw *FileWatcher) clearRetryState(filePath string) {
+	fw.retryMu.Lock()
+	delete(fw.retryCounts, filePath)
+	fw.retryMu.Unlock()
+}
+
+// retryBackoff returns 5s doubling per attempt, capped at 5 minutes
+func retryBackoff(attempt int) time.Duration {
+	const base = 5 * time.Second
+	const maxDelay = 5 * time.Minute
+
+	if attempt > 6 { // 5s * 2^6 > maxDelay
+		return maxDelay
+	}
+	d := base << (attempt - 1)
+	if d > maxDelay {
+		return maxDelay
+	}
+	return d
 }
 
 func (fw *FileWatcher) tryMarkFileForProcessing(filePath string) bool {

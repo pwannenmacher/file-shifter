@@ -17,20 +17,28 @@ import (
 	"file-shifter/config"
 
 	"github.com/jlaffaye/ftp"
-	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 type FileHandler struct {
 	S3ClientManager *S3ClientManager
+	RemoteConns     *RemoteConnManager
 	OutputTargets   []config.OutputTarget
 }
 
 func NewFileHandler(targets []config.OutputTarget, s3ClientManager *S3ClientManager) *FileHandler {
 	return &FileHandler{
 		S3ClientManager: s3ClientManager,
+		RemoteConns:     NewRemoteConnManager(),
 		OutputTargets:   targets,
+	}
+}
+
+// Close shuts down all pooled remote connections
+func (fh *FileHandler) Close() {
+	if fh.RemoteConns != nil {
+		fh.RemoteConns.Close()
 	}
 }
 
@@ -443,26 +451,20 @@ func (fh *FileHandler) copyToSFTP(srcPath, relPath string, target config.OutputT
 	return fh.copyToSFTPClient(srcPath, remotePath, host, target)
 }
 
-func (fh *FileHandler) copyToSFTPClient(srcPath, remotePath, host string, target config.OutputTarget) error {
-	// SSH-Verbindung aufbauen
+func (fh *FileHandler) copyToSFTPClient(srcPath, remotePath, host string, target config.OutputTarget) (err error) {
+	// Gepoolten SFTP-Client holen (Verbindung wird wiederverwendet)
 	ftpConfig := target.GetFTPConfig()
-	sshConfig, err := createSSHConfig(ftpConfig)
+	client, err := fh.RemoteConns.GetSFTPClient(host, ftpConfig)
 	if err != nil {
-		return fmt.Errorf("SSH-Konfiguration fehlgeschlagen: %w", err)
+		return err
 	}
-
-	conn, err := ssh.Dial("tcp", host, sshConfig)
-	if err != nil {
-		return fmt.Errorf("SSH-Verbindung fehlgeschlagen: %w", err)
-	}
-	defer conn.Close()
-
-	// SFTP-Client erstellen
-	client, err := sftp.NewClient(conn)
-	if err != nil {
-		return fmt.Errorf("SFTP-Client-Erstellung fehlgeschlagen: %w", err)
-	}
-	defer client.Close()
+	// Bei Fehlern die gecachte Verbindung verwerfen, damit der nächste
+	// Versuch frisch verbindet
+	defer func() {
+		if err != nil {
+			fh.RemoteConns.InvalidateSFTPClient(host, ftpConfig)
+		}
+	}()
 
 	// Remote-Verzeichnis erstellen
 	remoteDir := filepath.Dir(remotePath)
@@ -509,14 +511,16 @@ func (fh *FileHandler) copyToSFTPClient(srcPath, remotePath, host string, target
 	return nil
 }
 
-func (fh *FileHandler) copyToFTPRegular(srcPath, remotePath, host string, target config.OutputTarget) error {
-	// FTP-Verbindung aufbauen und anmelden
+func (fh *FileHandler) copyToFTPRegular(srcPath, remotePath, host string, target config.OutputTarget) (err error) {
+	// Gepoolte FTP-Verbindung holen (wird nach Erfolg wiederverwendet)
 	ftpConfig := target.GetFTPConfig()
-	client, err := connectAndLoginFTP(host, ftpConfig)
+	client, err := fh.RemoteConns.GetFTPConn(host, ftpConfig)
 	if err != nil {
 		return err
 	}
-	defer client.Quit()
+	defer func() {
+		fh.RemoteConns.ReleaseFTPConn(host, ftpConfig, client, err == nil)
+	}()
 
 	// Remote-Verzeichnis erstellen (falls nötig)
 	remoteDir := filepath.Dir(remotePath)
@@ -654,13 +658,16 @@ func (fh *FileHandler) deleteFromFTP(relPath string, target config.OutputTarget)
 		return fmt.Errorf("fehler beim Parsen des FTP-Pfads: %w", err)
 	}
 
-	// Establish FTP connection and log in
+	// Gepoolte FTP-Verbindung holen
 	ftpConfig := target.GetFTPConfig()
-	client, err := connectAndLoginFTP(host, ftpConfig)
+	client, err := fh.RemoteConns.GetFTPConn(host, ftpConfig)
 	if err != nil {
 		return err
 	}
-	defer client.Quit()
+	healthy := true
+	defer func() {
+		fh.RemoteConns.ReleaseFTPConn(host, ftpConfig, client, healthy)
+	}()
 
 	// Use Unix-style path for FTP
 	remotePath = normalizeRemotePath(remotePath)
@@ -671,6 +678,7 @@ func (fh *FileHandler) deleteFromFTP(relPath string, target config.OutputTarget)
 			slog.Debug("File does not exist in FTP destination", "path", remotePath)
 			return nil // File does not exist - no error
 		}
+		healthy = false
 		return fmt.Errorf("error during FTP deletion: %w", err)
 	}
 
@@ -686,22 +694,10 @@ func (fh *FileHandler) deleteFromSFTP(relPath string, target config.OutputTarget
 	}
 
 	ftpConfig := target.GetFTPConfig()
-	sshConfig, err := createSSHConfig(ftpConfig)
+	client, err := fh.RemoteConns.GetSFTPClient(host, ftpConfig)
 	if err != nil {
-		return fmt.Errorf("SSH configuration failed: %w", err)
+		return err
 	}
-
-	conn, err := ssh.Dial("tcp", host, sshConfig)
-	if err != nil {
-		return fmt.Errorf("SSH connection failed: %w", err)
-	}
-	defer conn.Close()
-
-	client, err := sftp.NewClient(conn)
-	if err != nil {
-		return fmt.Errorf("SFTP client creation failed: %w", err)
-	}
-	defer client.Close()
 
 	// Datei löschen
 	if err := client.Remove(remotePath); err != nil {
@@ -709,6 +705,7 @@ func (fh *FileHandler) deleteFromSFTP(relPath string, target config.OutputTarget
 			slog.Debug("File does not exist in SFTP destination", "path", remotePath)
 			return nil // Datei existiert nicht - kein Fehler
 		}
+		fh.RemoteConns.InvalidateSFTPClient(host, ftpConfig)
 		return fmt.Errorf("fehler beim SFTP-Löschen: %w", err)
 	}
 
