@@ -6,7 +6,7 @@ toolchain go1.26.5
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/jlaffaye/ftp v0.2.2
+	github.com/jlaffaye/ftp v0.2.4
 	github.com/joho/godotenv v1.5.1
 	github.com/minio/minio-go/v7 v7.2.1
 	github.com/pkg/sftp v1.13.11
@@ -29,7 +29,7 @@ require (
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
-	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	gopkg.in/ini.v1 v1.67.2 // indirect
